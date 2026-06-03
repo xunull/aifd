@@ -18,6 +18,25 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
+      # D3: Tag <-> pyproject version consistency gate.
+      # Fail fast at the build stage if `git tag vX.Y.Z` doesn't match the
+      # `version =` line in pyproject.toml. PyPI never lets the same version
+      # re-upload; catching this here keeps a bad wheel from poisoning the
+      # registry.
+      - name: Verify tag matches pyproject version
+        run: |
+          set -euo pipefail
+          TAG_REF="${GITHUB_REF_NAME}"           # e.g. v0.2.1
+          TAG_VER="${TAG_REF#v}"                 # 0.2.1
+          PYPROJECT_VER=$(grep -E '^version *= *' pyproject.toml \
+            | head -n1 | sed -E 's/^version *= *"([^"]+)".*/\1/')
+          echo "tag=$TAG_REF  tag_version=$TAG_VER  pyproject=$PYPROJECT_VER"
+          if [ "$TAG_VER" != "$PYPROJECT_VER" ]; then
+            echo "::error::Tag $TAG_REF does not match pyproject version $PYPROJECT_VER"
+            echo "Bump pyproject.toml to $TAG_VER (and aifd/__init__.py) before re-tagging."
+            exit 1
+          fi
+
       - name: Build wheel + sdist
         run: uv build
 
@@ -27,12 +46,37 @@ jobs:
           name: python-package-distributions
           path: dist/
 
-  publish-to-pypi:
-    name: Publish to PyPI
+  # D2: TestPyPI first as a dry-run. PyPI doesn't allow re-uploading the
+  # same version, so a broken wheel on PyPI is permanent. TestPyPI lets
+  # us catch wheel/metadata issues before they poison the real index.
+  # publish-to-pypi `needs` this job so a TestPyPI failure halts the chain.
+  publish-to-testpypi:
+    name: Publish to TestPyPI
     needs: build
     runs-on: ubuntu-latest
-    # Trusted Publisher: configure on PyPI side before first release.
-    # See https://docs.pypi.org/trusted-publishers/
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/aifd
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    needs: publish-to-testpypi
+    runs-on: ubuntu-latest
+    # Trusted Publisher: configured on PyPI side before first release.
+    # See docs/release.md for the one-time setup instructions.
     environment:
       name: pypi
       url: https://pypi.org/p/aifd
@@ -63,8 +107,32 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+      # D4: Pull the matching version section from CHANGELOG.md so the
+      # Release page shows the curated notes we already wrote, not GitHub's
+      # commit-summary auto-generator.
+      - name: Extract CHANGELOG section for this version
+        run: |
+          set -euo pipefail
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          # Print lines between `## [TAG_VER]` (inclusive) and the next
+          # `## [` heading (exclusive). Trim leading/trailing blank lines.
+          awk -v ver="$TAG_VER" '
+            $0 ~ "^## \\[" ver "\\]" { in_section = 1; print; next }
+            in_section && /^## \[/ { exit }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          # If extraction produced nothing, fall back to a tiny placeholder
+          # so the action does not silently publish an empty body.
+          if [ ! -s release-notes.md ]; then
+            echo "Release $GITHUB_REF_NAME" > release-notes.md
+            echo "" >> release-notes.md
+            echo "_(CHANGELOG.md has no entry for this version; see commit history.)_" >> release-notes.md
+          fi
+          echo "--- release-notes.md ---"
+          cat release-notes.md
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: release-notes.md
