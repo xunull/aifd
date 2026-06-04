@@ -1,6 +1,6 @@
 [project]
 name = "aifd"
-version = "0.2.1"
+version = "0.3.1"
 description = "List AI coding sessions (Claude Code, Codex, Cursor) for the current directory across all your AI tools"
 readme = "README.md"
 license = { text = "Apache-2.0" }

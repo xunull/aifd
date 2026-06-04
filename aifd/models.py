@@ -81,6 +81,50 @@ class SkillStats:
 
 
 @dataclass(frozen=True)
+class QuestionAnswer:
+    """One AskUserQuestion event and the user's recorded answer.
+
+    A single AUQ tool_use call may carry 1-4 questions; per the v0.3 CEO
+    plan, each question becomes its own QuestionAnswer row so retro
+    reads naturally as "I was asked X, I chose Y" with no further unpacking.
+
+    Attributes:
+        question: the question text shown to the user.
+        options: option labels in presentation order.
+        recommended_option: option label parsed as recommended (the
+            `(recommended)` suffix on exactly one option). None when no
+            option carried the marker — common for neutral-posture or
+            older AUQ formats.
+        chosen_option: option label the user selected. None when the
+            user interrupted the call or the session was compacted before
+            an answer was recorded — observed in ~4% of real sessions.
+        notes: free-text the user typed via the "Other" path. None when
+            absent.
+        ts: when the question was asked. None when unparseable.
+        cwd: working directory at the time of the question (read from the
+            jsonl event's `cwd` field — authoritative, not the directory
+            encoding).
+        provider: "claude" | (future) "cursor".
+        session_id: provider-native session id (e.g. UUID stem).
+        source_path: jsonl path the event was read from, for debug.
+        tool_use_id: the AUQ tool_use id, used to pair to tool_result.
+            Kept for debugging Q-A pairing; not user-facing.
+    """
+
+    question: str
+    options: tuple[str, ...]
+    recommended_option: str | None
+    chosen_option: str | None
+    notes: str | None
+    ts: datetime | None
+    cwd: Path
+    provider: str
+    session_id: str
+    source_path: Path
+    tool_use_id: str
+
+
+@dataclass(frozen=True)
 class InstalledSkill:
     """One skill installed on disk in a provider's skills directory.
 

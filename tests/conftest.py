@@ -47,6 +47,7 @@ def make_claude_session(claude_root: Path):
         ai_title: str | None = None,
         user_text: str | None = None,
         skills: list[str] | None = None,
+        auq_calls: list[dict] | None = None,
     ) -> Path:
         project_dir = claude_root / _encode_cwd(cwd)
         jsonl = project_dir / f"{session_id}.jsonl"
@@ -80,6 +81,53 @@ def make_claude_session(claude_root: Path):
                     },
                 }
             )
+        # AUQ calls: each entry shape is:
+        #   {
+        #     "id": "toolu_...",
+        #     "name": "AskUserQuestion" (or "mcp__foo__AskUserQuestion"),
+        #     "questions": [{"question": "...", "options": [{"label": "..."},...]}],
+        #     "answer_text": "Your questions have been answered: \"Q\"=\"A\"..." (None = orphan)
+        #     "tool_name": optional override (default AskUserQuestion),
+        #   }
+        for call in auq_calls or []:
+            tool_use_id = call["id"]
+            tool_name = call.get("tool_name", "AskUserQuestion")
+            lines.append(
+                {
+                    "type": "assistant",
+                    "cwd": cwd,
+                    "sessionId": session_id,
+                    "timestamp": call.get("timestamp", timestamp),
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "id": tool_use_id,
+                                "name": tool_name,
+                                "input": {"questions": call["questions"]},
+                            }
+                        ]
+                    },
+                }
+            )
+            if call.get("answer_text") is not None:
+                lines.append(
+                    {
+                        "type": "user",
+                        "cwd": cwd,
+                        "sessionId": session_id,
+                        "timestamp": call.get("timestamp", timestamp),
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_use_id,
+                                    "content": call["answer_text"],
+                                }
+                            ]
+                        },
+                    }
+                )
         if ai_title is not None:
             lines.append(
                 {"type": "ai-title", "aiTitle": ai_title, "sessionId": session_id}

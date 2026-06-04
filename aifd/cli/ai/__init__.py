@@ -6,6 +6,7 @@ import click
 
 from .claude import claude
 from .codex import codex
+from .question import question
 from .session import session
 from .skill import skill
 
@@ -17,5 +18,6 @@ def ai() -> None:
 
 ai.add_command(session)
 ai.add_command(skill)
+ai.add_command(question)
 ai.add_command(claude)
 ai.add_command(codex)

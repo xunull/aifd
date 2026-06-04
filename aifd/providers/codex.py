@@ -31,7 +31,7 @@ from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
-from aifd.models import InstalledSkill, Session, SkillInvocation
+from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation
 from aifd.paths import cwd_equal, normalize_cwd
 from aifd.providers._utils import (
     CODEX_SKILL_RE,
@@ -349,6 +349,18 @@ class CodexProvider:
             plugin=None,
             is_symlink=is_symlink,
         )
+
+    def list_question_answers(
+        self, scope: Path | None = None
+    ) -> Iterable[QuestionAnswer]:
+        """Codex has no structured AskUserQuestion tool — return empty.
+
+        Codex's agent_message events are free-form text. Structured Q+A
+        extraction would need a separate opt-in heuristic provider
+        (see v0.3 TODOS). Returning empty keeps `aifd ai question list`
+        working when --provider isn't filtered to claude.
+        """
+        return ()
 
     def list_skill_invocations(
         self, scope: Path | None = None

@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from aifd.models import InstalledSkill, Session, SkillInvocation
+from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation
 
 
 @runtime_checkable
@@ -71,5 +71,21 @@ class Provider(Protocol):
         on-disk skills directory(ies) and returns one InstalledSkill per
         SKILL.md found. Default returns empty so providers without a skills
         directory concept inherit no-op behavior.
+        """
+        return ()
+
+    def list_question_answers(
+        self, scope: Path | None = None
+    ) -> Iterable[QuestionAnswer]:
+        """Enumerate AskUserQuestion calls and the user's recorded answers.
+
+        scope=None: global scan. scope=Path: narrow to a single cwd using
+        the same two-phase matching pattern as list_sessions.
+
+        Default returns empty so providers without structured
+        AskUserQuestion semantics (Codex, hypothetical Cursor) inherit
+        no-op behavior. Only Claude Code currently emits AUQ as a
+        structured tool_use; Codex equivalents would need a separate
+        opt-in heuristic provider (see v0.3 TODOS.md).
         """
         return ()

@@ -1,49 +1,48 @@
 """`aifd ai session` group and `aifd ai session list` command.
 
-Data flow (per design doc):
+Data flow (v0.3, refactored to use _runner.py):
 
     user runs `aifd ai session list` in /Users/foo/bar
                     │
                     ▼
-            cli.list_cmd()  ─── click parses --json / --provider
+            list_cmd()  ─── click parses --json / --provider / -v
                     │
                     ▼
-           normalize_cwd(Path.cwd())  ─── paths.py
+            run_provider_query(extractor, providers, scope_cwd, ...)
                     │
-                    ▼
-             filter(PROVIDERS, --provider)
-                    │
-                    ▼
+                    ▼  (inside the runner)
            ┌────────┴────────┐
         ClaudeProvider   CodexProvider
         .list_sessions   .list_sessions
            │                 │
            └────────┬────────┘
                     ▼
-                 list[Session]
+                 list[Session]  (sorted by started_at desc)
                     │
                     ▼
-           render_sessions(rows, as_json)
+           render_sessions(rows, cwd, as_json)
                     │
                 ┌───┴───┐
                 ▼       ▼
             rich Table  JSON
+
+The boilerplate that used to live in this file (filter providers, swallow
+per-provider failures, sort) moved to aifd.cli._runner so v0.3+ commands
+share the same shape. session.py's job is to wire the closure: which
+extractor, which sort key, which renderer.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import click
 
-from aifd.cli._logging import configure_logging
+from aifd.cli._runner import run_provider_query
 from aifd.models import Session
-from aifd.paths import normalize_cwd
+from aifd.providers.base import Provider
 from aifd.providers.registry import PROVIDERS
 from aifd.render import render_sessions
-
-logger = logging.getLogger("aifd")
 
 
 @click.group()
@@ -76,23 +75,27 @@ def session() -> None:
 )
 def list_cmd(as_json: bool, providers: tuple[str, ...], verbose: int) -> None:
     """List AI sessions for the current directory across all configured providers."""
-    configure_logging(verbose)
+    cwd = Path.cwd()
 
-    cwd = normalize_cwd(Path.cwd())
-    logger.info("Listing sessions for cwd=%s", cwd)
+    def extractor(provider: Provider, scope: Path | None) -> list[Session]:
+        # session list is always cwd-scoped — scope is guaranteed non-None
+        # here because we pass Path.cwd() below. The Provider Protocol
+        # types it as Path so we assert non-None for mypy.
+        assert scope is not None
+        return list(provider.list_sessions(scope))
 
-    wanted = {x.lower() for x in providers}
-    selected = [p for p in PROVIDERS if not wanted or p.name.lower() in wanted]
-    rows: list[Session] = []
-    for provider in selected:
-        try:
-            rows.extend(provider.list_sessions(cwd))
-        except Exception as exc:
-            logger.warning("Provider %s failed entirely: %s", provider.name, exc)
+    def render_fn(rows: list[Session], json_mode: bool) -> None:
+        # Capture cwd in the closure so the runner doesn't need to know
+        # about renderer-specific labels.
+        render_sessions(rows, cwd=cwd, as_json=json_mode)
 
-    # Sort by started_at desc, None last
-    rows.sort(key=lambda s: (s.started_at is None, s.started_at), reverse=True)
-
-    render_sessions(rows, cwd=cwd, as_json=as_json)
-
-
+    run_provider_query(
+        providers_pool=PROVIDERS,
+        extractor=extractor,
+        providers_filter=providers,
+        scope_cwd=cwd,
+        sort_key=lambda s: (s.started_at is None, s.started_at),
+        render_fn=render_fn,
+        as_json=as_json,
+        verbose=verbose,
+    )

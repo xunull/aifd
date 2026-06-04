@@ -71,6 +71,46 @@ def is_gstack_name(raw: str) -> bool:
 CLAUDE_COMMAND_RE = re.compile(r"<command-name>([^<]+)</command-name>")
 CODEX_SKILL_RE = re.compile(r"^\[\$([^\]]+)\]")
 
+# AskUserQuestion tool. Matches the native tool name plus MCP host variants
+# (e.g. `mcp__conductor__AskUserQuestion`). Verified against 263 real
+# calls — 100% match. Forward-compatible with future MCP namespaces.
+AUQ_TOOL_NAME_RE = re.compile(r"^(AskUserQuestion|mcp__.*__AskUserQuestion)$")
+
+# The `(recommended)` suffix on exactly one AUQ option carries the model's
+# stated recommendation. Tolerate Title Case, surrounding whitespace,
+# trailing punctuation, and common non-English glosses (skills frequently
+# emit Chinese `(推荐)` or Japanese `(推奨)` when the user's session is
+# non-English). We strip the suffix off the label so the
+# `recommended_option` stored in QuestionAnswer matches the bare label.
+_RECOMMENDED_WORDS = (
+    "recommended",  # English (gstack default)
+    "推荐",  # 简体
+    "推薦",  # 繁體 / 日本語
+    "推奨",  # 日本語
+    "권장",  # 한국어
+    "recomendado",  # Español / Português
+    "recommandé",  # Français
+    "empfohlen",  # Deutsch
+)
+_RECOMMENDED_SUFFIX_RE = re.compile(
+    r"\s*[\(\[]\s*(?:" + "|".join(_RECOMMENDED_WORDS) + r")\s*[\)\]]\s*\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def split_recommended_suffix(label: str) -> tuple[str, bool]:
+    """Return (label_without_suffix, is_recommended).
+
+    Examples:
+        "A) Add to PR (recommended)" -> ("A) Add to PR", True)
+        "A) Add to PR [recommended]" -> ("A) Add to PR", True)
+        "A) Add to PR"               -> ("A) Add to PR", False)
+    """
+    m = _RECOMMENDED_SUFFIX_RE.search(label)
+    if not m:
+        return label, False
+    return label[: m.start()].rstrip(), True
+
 
 # Frontmatter parsing — handwritten so we don't ship PyYAML as a runtime dep.
 # Only extracts top-level scalar fields (name / description / version). Multi-

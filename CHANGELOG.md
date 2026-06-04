@@ -3,6 +3,98 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-06-03
+
+### Added
+
+- `aifd ai question list --open` — zero-friction browser view. Writes
+  the HTML to a temp file and launches your default browser in one
+  command. Solves the v0.3 Table pain point that 67% of real questions
+  are longer than 200 characters and 12% exceed 500 (median 408) —
+  terminals truncate, browsers don't. No `--output`, no `--html`, no
+  thinking about a path.
+- `aifd ai question list --output PATH` — persist HTML to a specific
+  file. Combine with `--open` to also launch the browser. Implies
+  HTML mode (no need to also pass `--html`).
+- `aifd ai question list --html` — print the HTML page to stdout for
+  pipes (`> out.html`, `| caddy file-server`, etc.).
+- HTML layout is Notion / Linear style: one card per question,
+  system-followed dark/light theme, 70ch max-width, chosen option
+  highlighted green, recommended option marked with ★. Long question
+  text wraps; multiSelect answers render as a separate "Selected:" row.
+- ALL user-derived text passes through `html.escape()` — question /
+  options / chosen / recommended / notes / cwd / source / scope_label —
+  so a historic question like "how do I sanitize `<script>`?" cannot
+  XSS the rendered page. Verified by regression tests in
+  `tests/test_question_render.py`.
+
+### Notes
+
+- HTML / JSON modes are mutually exclusive; mixing them emits a
+  one-line `click.UsageError`. The other knobs (`--html`, `--open`,
+  `--output`) compose freely.
+- File-write failures (e.g. read-only path) surface as
+  `Error: cannot write to <path>: <reason>` on stderr with exit code 1.
+  Per CLAUDE.md "zero silent failures + every error has a name".
+
+## [0.3.0] - 2026-06-03
+
+### Added
+
+- `aifd ai question list` — retro of every `AskUserQuestion` call the AI
+  asked you, paired with the option you selected. Reads Claude jsonl,
+  finds `tool_use` blocks whose name matches
+  `^(AskUserQuestion|mcp__.*__AskUserQuestion)$` (covers MCP host
+  variants), then pairs each call's `tool_use_id` to the user's
+  `tool_result` so the row carries both the question and the chosen
+  answer. Orphan questions (~4% of real sessions — user interrupted or
+  session compacted) emit with `chosen_option=None` and render as
+  "no answer recorded" so they stay visible in the retro.
+- `--cwd` flag to limit to the current directory (default is global,
+  mirrors `aifd ai session list`).
+- `--limit N` (default 50) plus `--all` to opt out, so the first run on
+  a heavy-AUQ user doesn't dump thousands of rows.
+- `--provider claude` filter; Codex returns an empty iterable because
+  its `agent_message` events are free-form text with no structured
+  question event (covered in `docs/question-extraction.md`).
+- `--json` flag emits the full record including `options`, `notes`,
+  `tool_use_id`, `source_path` for pipe / jq workflows.
+- Summary footer: `N questions in <scope> | recommended hit rate: X%
+  (M/N) | K unanswered`. Hit-rate denominator excludes orphans and
+  rows with no recommendation, so the percentage reflects only the
+  decisions that had a baseline.
+- `aifd.models.QuestionAnswer` dataclass — one row per question (a
+  single 1-4-question AUQ call yields multiple rows). Frozen, so it
+  composes cleanly into v0.3+ stats / search.
+- `aifd.cli._runner.run_provider_query` — shared harness extracted
+  from `cli/ai/session.py` once the second multi-provider list command
+  joined the file. session.py now delegates to it, so the v0.3+
+  commands (stats, search, ...) plug in three callables instead of
+  re-deriving the boilerplate.
+- `aifd.providers._utils.split_recommended_suffix` recognises both
+  English `(recommended)` and Chinese / Japanese / Korean / Spanish /
+  French / German glosses (`(推荐)`, `(推奨)`, `(권장)`, ...). Driven
+  by real-world data: every user-recorded session in the dev set used
+  the localized suffix.
+- `docs/question-extraction.md` — Chinese design doc covering the AUQ
+  jsonl schema, `tool_use_id` pairing, multi-question splitting,
+  orphan handling, and why Codex/brainstorm are deferred. Matches the
+  v0.2.1 `docs/skill-detection.md` pattern.
+- 45 new tests across `test_question_extraction.py` (provider unit),
+  `test_question_render.py` (Table + footer + JSON), `test_question_cli.py`
+  (end-to-end), `test_runner.py` (shared harness contract).
+
+### Changed
+
+- Provider Protocol gains `list_question_answers(scope) -> Iterable[QA]`
+  default body returning `()`, matching the v0.2 pattern for
+  `list_skill_invocations` and `list_installed_skills`. `CodexProvider`
+  explicitly overrides with the same no-op shape because duck-typed
+  classes don't inherit Protocol default bodies.
+- `cli/ai/session.py` refactored to use `run_provider_query`. Behaviour
+  identical (132 prior tests pass unchanged) but the harness is now
+  shared with `aifd ai question list`.
+
 ## [0.2.1] - 2026-06-03
 
 ### Added
@@ -96,6 +188,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   (Python 3.12+3.13 × Linux/macOS/Windows).
 - GitHub Actions release workflow targeting PyPI Trusted Publisher.
 
+[0.3.1]: https://github.com/xunull/aifd/releases/tag/v0.3.1
+[0.3.0]: https://github.com/xunull/aifd/releases/tag/v0.3.0
 [0.2.1]: https://github.com/xunull/aifd/releases/tag/v0.2.1
 [0.2.0]: https://github.com/xunull/aifd/releases/tag/v0.2.0
 [0.1.0]: https://github.com/xunull/aifd/releases/tag/v0.1.0
