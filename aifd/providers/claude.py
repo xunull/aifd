@@ -39,7 +39,7 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 
-from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation
+from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation, TokenUsage
 from aifd.paths import cwd_equal, normalize_cwd
 from aifd.providers._utils import (
     AUQ_TOOL_NAME_RE,
@@ -702,6 +702,149 @@ class ClaudeProvider:
             source_path=jsonl_path,
             tool_use_id=tool_use_id,
         )
+
+
+    def list_token_usage(
+        self, scope: Path | None = None
+    ) -> Iterable[TokenUsage]:
+        """Extract per-assistant-event token usage from Claude jsonl.
+
+        Claude records usage on the `message.usage` object of every
+        assistant event. Fields:
+          - input_tokens                fresh input
+          - output_tokens               completion
+          - cache_creation_input_tokens cache write
+          - cache_read_input_tokens     cache read
+        Model id lives at `message.model`.
+
+        scope filtering follows the same two-phase pattern as the other
+        list_* methods: encoded directory hint first, then jsonl `cwd`
+        field for authoritative match.
+        """
+        if not self.root.is_dir():
+            logger.debug("Claude projects root does not exist: %s", self.root)
+            return
+
+        if scope is None:
+            try:
+                project_dirs = [p for p in self.root.iterdir() if p.is_dir()]
+            except OSError as exc:
+                logger.warning(
+                    "Cannot list Claude projects root %s: %s", self.root, exc
+                )
+                return
+        else:
+            target = normalize_cwd(scope)
+            encoded = self._encode_cwd(target)
+            project_dirs = list(self._candidate_dirs(encoded))
+
+        for project_dir in project_dirs:
+            for jsonl_path in self._jsonl_files(project_dir):
+                yield from self._extract_token_usage_from_file(jsonl_path, scope)
+
+    def _extract_token_usage_from_file(
+        self, jsonl_path: Path, scope: Path | None
+    ) -> Iterator[TokenUsage]:
+        """Stream per-event TokenUsage rows from one Claude jsonl file."""
+        try:
+            f = jsonl_path.open("r", encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Skipping Claude file %s: %s", jsonl_path, exc)
+            return
+
+        file_cwd: Path | None = None
+        session_id = jsonl_path.stem
+        rows: list[TokenUsage] = []
+
+        try:
+            with f:
+                for raw in f:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if file_cwd is None:
+                        cwd_val = event.get("cwd")
+                        if isinstance(cwd_val, str) and cwd_val:
+                            file_cwd = Path(cwd_val)
+
+                    if event.get("type") != "assistant":
+                        continue
+                    msg = event.get("message")
+                    if not isinstance(msg, dict):
+                        continue
+                    usage = msg.get("usage")
+                    if not isinstance(usage, dict):
+                        continue
+                    model = msg.get("model")
+                    if not isinstance(model, str):
+                        model = None
+                    ts_str = event.get("timestamp")
+                    ts = parse_iso_ts(ts_str) if isinstance(ts_str, str) else None
+
+                    rows.append(
+                        TokenUsage(
+                            provider=self.name,
+                            session_id=session_id,
+                            cwd=file_cwd,
+                            ts=ts,
+                            model=model,
+                            input_tokens=_safe_int(usage.get("input_tokens")),
+                            output_tokens=_safe_int(usage.get("output_tokens")),
+                            cache_creation_input_tokens=_safe_int(
+                                usage.get("cache_creation_input_tokens")
+                            ),
+                            cache_read_input_tokens=_safe_int(
+                                usage.get("cache_read_input_tokens")
+                            ),
+                            reasoning_output_tokens=0,
+                            source_path=jsonl_path,
+                        )
+                    )
+        except OSError as exc:
+            logger.warning("IO error reading %s: %s", jsonl_path, exc)
+            return
+
+        # scope filter: file's authoritative cwd must match scope before
+        # any row is yielded (same Phase-2 rule as list_sessions).
+        if scope is not None:
+            if file_cwd is None or not cwd_equal(
+                normalize_cwd(file_cwd), normalize_cwd(scope)
+            ):
+                return
+
+        # Patch cwd onto the rows now that we know it (rows captured before
+        # the cwd line was reached carry file_cwd's final value via shared ref).
+        for row in rows:
+            if row.cwd is None and file_cwd is not None:
+                yield TokenUsage(
+                    provider=row.provider,
+                    session_id=row.session_id,
+                    cwd=file_cwd,
+                    ts=row.ts,
+                    model=row.model,
+                    input_tokens=row.input_tokens,
+                    output_tokens=row.output_tokens,
+                    cache_creation_input_tokens=row.cache_creation_input_tokens,
+                    cache_read_input_tokens=row.cache_read_input_tokens,
+                    reasoning_output_tokens=row.reasoning_output_tokens,
+                    source_path=row.source_path,
+                )
+            else:
+                yield row
+
+
+def _safe_int(value: object) -> int:
+    """Coerce a jsonl numeric field to int, defaulting to 0 on absent/bad."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return 0
 
 
 def _extract_user_text(event: dict[str, object]) -> str | None:

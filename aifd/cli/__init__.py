@@ -7,6 +7,7 @@ import click
 from aifd import __version__
 
 from .ai import ai
+from .vault import vault
 
 
 @click.group()
@@ -20,3 +21,4 @@ def cli() -> None:
 
 
 cli.add_command(ai)
+cli.add_command(vault)

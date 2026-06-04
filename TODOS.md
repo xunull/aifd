@@ -80,6 +80,31 @@
 
 **Depends on / blocked by**：建议先看 OpenAI Codex CLI 季度更新有没有引入结构化提问事件。如果没有，再选 1 / 4 启动（避开 LLM 解法的成本）。
 
+### `aifd vault prices update` 自动同步 vendor 价格表
+
+**What**：新增一个脚本（`scripts/update_prices.py`）或子命令（`aifd vault prices update`），定期从 vendor pricing page 拉真实价格，更新 `aifd/vault/prices.py`。最低限度自动化 Anthropic（已验证 WebFetch 能跑通 `platform.claude.com/docs/en/about-claude/pricing`），OpenAI 留 fallback（Cloudflare 拦 WebFetch）。
+
+**Why**：现在 prices.py 的 OpenAI 部分是估算，Anthropic 部分是 2026-06-04 手动 verify 的——会过期。每次 vendor 调价都得人工跑一遍 WebFetch + diff + 改 prices.py + 重测——容易拖到不更新。自动化后 weekly cron 或 release 前 hook 跑一次就行。
+
+**Pros**：价格表新鲜度提升；减少手动同步成本；用户报告"显示价过期"的频率降低；CI 加一步 prices verify 即可阻止过期 release。
+
+**Cons**：vendor page 改版会让 scraper 坏；Cloudflare 不一定永远能绕过；要写 schema validation 避免 vendor 偷偷加新字段崩到我们；某些 cloud-tier-specific 价（Bedrock / Vertex）跟 first-party 不同，要决定 aifd 跟哪一条。
+
+**实现路径**（按复杂度）：
+
+1. **`(P2, S)` 简单 script + 手动跑**：`scripts/update_prices.py` 跑 WebFetch（已验证 Anthropic 可行）+ 输出 diff，人审完手动 commit。CI 在 release.yml 加一步 "verify prices 不超过 90 天"，过期就 fail release。30min CC。
+2. **`(P2, M)` 子命令 `aifd vault prices update`**：跟 (1) 同样 logic 但 expose 成 CLI，方便用户本地跑 + 覆盖单个 model 价格。需要 `--dry-run` / `--apply` flag、diff 显示 / `--write-to PATH`。1h CC。
+3. **`(P3, L)` GitHub Actions 周期任务**：weekly cron 调 update_prices.py、检测 diff、自动开 PR @ xunull review + merge。完整自动化但要小心 vendor page 偷偷改字段 schema 让脚本错乱。需 alerting on parse 失败。2h CC + ops setup。
+4. **`(P3, M)` OpenAI 绕过 Cloudflare 路径调查**：试 `gh api`、SDK 源码、OpenAI cookbook GitHub mirror 等替代源。如果都 fail，转人工 PR。30min 调查 + variable 实施成本。
+
+**Effort**：human M (~6h 完整) → CC S/M (~1.5h 路径 2)。
+
+**Priority**：P2。Anthropic 价格估计能稳一段（最近一次降价 Opus 4.5+），但 OpenAI 永远在动且 unverified。Build 后用户首次报告 "价不对" 就启动。
+
+**Context**：v0.4 实施时 prices.py 半自动 verify 已实证可行——Anthropic WebFetch 拉 `platform.claude.com` 成功获取了 11 个 model 的真实价格，但 OpenAI 同方法 403。当时手动 update 了 Anthropic 部分。完整设计讨论在 conversation 2026-06-04（commit `2026-06-04 update Anthropic prices to verified`）。
+
+**Depends on / blocked by**：建议在 v0.4 公开发布并收 vendor pricing 调价反馈后启动。如果 v0.5 选 `vault export`，这条 prices update 可以同 release。
+
 ### `aifd vault export` 全量备份 (P2, 推迟自 v0.4 CEO plan)
 
 **What**：单命令 `aifd vault export --output path.zip` 把所有 provider 的 history 打成一个 archive（含 `manifest.json` 列出每个 session 的 cwd / size / sha256，方便审计）。可选 `--encrypt --key /path/to/keyfile` (age / GPG)。

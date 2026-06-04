@@ -31,7 +31,7 @@ from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
-from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation
+from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation, TokenUsage
 from aifd.paths import cwd_equal, normalize_cwd
 from aifd.providers._utils import (
     CODEX_SKILL_RE,
@@ -362,6 +362,163 @@ class CodexProvider:
         """
         return ()
 
+    def list_token_usage(
+        self, scope: Path | None = None
+    ) -> Iterable[TokenUsage]:
+        """Extract per-event token usage from Codex rollout jsonl files.
+
+        Codex records cumulative totals in
+        `event_msg.payload.info.total_token_usage` (one per token_count
+        event). We emit ONE TokenUsage per session per token-count event;
+        the cost aggregator then sums (or takes the max if cumulative).
+
+        Model id lives in `turn_context.payload.model`. cwd lives in
+        `session_meta.payload.cwd`.
+
+        Two layouts coexist:
+          - ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl   (per-day directories)
+          - ~/.codex/archived_sessions/rollout-*.jsonl     (flat)
+        """
+        sessions_root = self.root / "sessions"
+        archived_root = self.root / "archived_sessions"
+
+        files: list[Path] = []
+        if sessions_root.is_dir():
+            try:
+                files.extend(p for p in sessions_root.rglob("*.jsonl"))
+            except OSError as exc:
+                logger.warning(
+                    "Cannot walk Codex sessions %s: %s", sessions_root, exc
+                )
+        if archived_root.is_dir():
+            try:
+                files.extend(p for p in archived_root.glob("*.jsonl"))
+            except OSError as exc:
+                logger.warning(
+                    "Cannot list Codex archived %s: %s", archived_root, exc
+                )
+
+        target = normalize_cwd(scope) if scope is not None else None
+
+        for jsonl_path in files:
+            yield from self._extract_token_usage_from_codex_file(
+                jsonl_path, target
+            )
+
+    def _extract_token_usage_from_codex_file(
+        self, jsonl_path: Path, target: Path | None
+    ) -> Iterator[TokenUsage]:
+        """Stream TokenUsage rows from one Codex rollout jsonl.
+
+        token_count events report cumulative totals — we emit one row
+        per token_count event and rely on the aggregator to dedupe per
+        session (taking the max of cumulative totals per session-id).
+        """
+        try:
+            f = jsonl_path.open("r", encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Skipping Codex file %s: %s", jsonl_path, exc)
+            return
+
+        session_id = jsonl_path.stem
+        file_cwd: Path | None = None
+        model: str | None = None
+        rows: list[TokenUsage] = []
+
+        try:
+            with f:
+                for raw in f:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+
+                    etype = event.get("type")
+                    payload = event.get("payload")
+                    if not isinstance(payload, dict):
+                        continue
+
+                    if etype == "session_meta" and file_cwd is None:
+                        cwd_val = payload.get("cwd")
+                        if isinstance(cwd_val, str) and cwd_val:
+                            file_cwd = Path(cwd_val)
+                        sid = payload.get("id")
+                        if isinstance(sid, str) and sid:
+                            session_id = sid
+                    elif etype == "turn_context" and model is None:
+                        m = payload.get("model")
+                        if isinstance(m, str):
+                            model = m
+                    elif etype == "event_msg" and payload.get("type") == "token_count":
+                        info = payload.get("info")
+                        if not isinstance(info, dict):
+                            continue
+                        total = info.get("total_token_usage")
+                        if not isinstance(total, dict):
+                            continue
+                        ts_str = event.get("timestamp")
+                        ts = parse_iso_ts(ts_str) if isinstance(ts_str, str) else None
+                        # IMPORTANT: OpenAI's `input_tokens` is the TOTAL of
+                        # fresh + cached. To align with our schema (and
+                        # Claude's, where input_tokens excludes cache), we
+                        # subtract `cached_input_tokens`. Without this, cost
+                        # computation double-bills cached tokens at the full
+                        # input rate.
+                        total_in = _safe_int_codex(total.get("input_tokens"))
+                        cached = _safe_int_codex(total.get("cached_input_tokens"))
+                        fresh_input = max(total_in - cached, 0)
+                        rows.append(
+                            TokenUsage(
+                                provider=self.name,
+                                session_id=session_id,
+                                cwd=file_cwd,
+                                ts=ts,
+                                model=model,
+                                input_tokens=fresh_input,
+                                output_tokens=_safe_int_codex(total.get("output_tokens")),
+                                cache_creation_input_tokens=0,
+                                cache_read_input_tokens=cached,
+                                reasoning_output_tokens=_safe_int_codex(
+                                    total.get("reasoning_output_tokens")
+                                ),
+                                source_path=jsonl_path,
+                            )
+                        )
+        except OSError as exc:
+            logger.warning("IO error reading %s: %s", jsonl_path, exc)
+            return
+
+        # scope filter — file's authoritative cwd must match.
+        if target is not None:
+            if file_cwd is None or not cwd_equal(normalize_cwd(file_cwd), target):
+                return
+
+        # CRITICAL: Codex token_count payloads are CUMULATIVE per session.
+        # A session with 3 token_count events at [46936, 94371, 148163]
+        # actually used 148163 tokens, not the sum. The aggregator must
+        # not sum them, so we collapse to a single row per session here
+        # — the last one, which holds the final cumulative totals.
+        if not rows:
+            return
+        last = rows[-1]
+        yield TokenUsage(
+            provider=last.provider,
+            session_id=last.session_id,
+            cwd=last.cwd or file_cwd,
+            ts=last.ts,
+            model=last.model or model,
+            input_tokens=last.input_tokens,
+            output_tokens=last.output_tokens,
+            cache_creation_input_tokens=last.cache_creation_input_tokens,
+            cache_read_input_tokens=last.cache_read_input_tokens,
+            reasoning_output_tokens=last.reasoning_output_tokens,
+            source_path=last.source_path,
+        )
+
+
     def list_skill_invocations(
         self, scope: Path | None = None
     ) -> Iterable[SkillInvocation]:
@@ -577,3 +734,12 @@ def _ms_to_dt(ms: object) -> datetime | None:
         return None
 
 
+
+
+def _safe_int_codex(value: object) -> int:
+    """Coerce a Codex jsonl numeric field to int, defaulting to 0."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return 0

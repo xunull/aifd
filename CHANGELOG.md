@@ -3,6 +3,101 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-06-04
+
+### Added
+
+`aifd vault` — new top-level command group for data-sovereignty
+operations. v0.3 was "look at your AI history"; v0.4 starts treating
+that history as your asset that you own, audit, and protect.
+
+#### `aifd vault scan` — PII / secret detector
+
+Walks every provider's jsonl (`~/.claude/projects`, `~/.codex/sessions`,
+`~/.codex/archived_sessions`) looking for likely-secret patterns.
+Output is safe to share: every snippet is redacted (first 4 + last 4
+chars only), the full secret is never stored beyond the scan loop.
+
+Detectors:
+- Anthropic `sk-ant-`, OpenAI `sk-` / `sk-proj-`, GitHub `ghp_` /
+  `github_pat_` / `ghs_`, AWS `AKIA*`, Slack `xox[baprs]-`, JWT
+  (eyJ-prefixed) — confidence 8-10, all regex
+- email addresses, bearer tokens — confidence 7
+- high-entropy strings (Shannon ≥4.5, length 40-200) — confidence 4-6,
+  noisy fallback for unknown secret formats; suppressed by default
+  via `--min-confidence 7`
+
+Flags:
+- `--root PATH` (repeatable) — add a path to scan, file or directory
+- `--no-default-roots` — only scan `--root` paths
+- `--min-confidence N` (default 7) — suppress lower-confidence finds
+- `--json` — full record (with redacted snippet), pipe-friendly
+- `-v / -vv` — log verbosity
+
+Real-world calibration: scanning my own history (32 Claude projects,
+115 Codex sessions) surfaced 304 leaked OpenAI keys, 1 GitHub PAT, 918
+emails, 4 JWTs. The 7-default threshold suppressed ~287K low-confidence
+entropy hits (hashes, embeddings, etc.) that would have drowned the
+real findings.
+
+#### `aifd vault cost` — token + USD spend aggregation
+
+Reads per-event token usage from both providers and rolls it up by
+project / model / month / provider. Prices from a bundled table
+(`aifd/vault/prices.py`), date-stamped so users know when to verify.
+
+Data sources:
+- Claude: `message.usage` on every assistant event (per-message
+  incremental — sums cleanly)
+- Codex: `event_msg.token_count.payload.info.total_token_usage` (per
+  session cumulative — provider collapses to one row per session
+  holding the cumulative max so the aggregator can still simply sum)
+
+OpenAI schema reconciliation: `input_tokens` in OpenAI's payload
+INCLUDES `cached_input_tokens`. The Codex provider subtracts cached
+so our schema (and Claude's) consistently treats `input_tokens` as
+fresh-input-only. Without this, cached tokens would be double-billed
+at the full input rate.
+
+Flags:
+- `--by project|model|month|provider` (default project)
+- `--provider claude|codex` — filter
+- `--json` — pipe-friendly
+- `--list-models` — show priced models so unknown ones are easy to spot
+- `-v / -vv`
+
+Bundled model prices cover Claude 4 family (opus / sonnet / haiku),
+3.5 family, 3-opus + OpenAI gpt-5 / gpt-5.5 / gpt-4o / gpt-4o-mini /
+o1 / o3 / codex-auto-review. Unknown models render with $0 attributed
+so token volume is still visible.
+
+#### Infrastructure
+
+- `aifd/models.py`: `TokenUsage`, `CostRow`, `SensitiveMatch` dataclasses
+- `aifd/vault/`: new package (`prices.py`, `cost.py`, `scan.py`)
+- `aifd/cli/vault/`: new command group (`scan.py`, `cost.py`)
+- `aifd/providers/base.py`: Protocol gains `list_token_usage(scope)
+  -> Iterable[TokenUsage]` default returning `()` (matches v0.2/v0.3
+  pattern)
+- `aifd/providers/claude.py`, `codex.py`: both implement
+  `list_token_usage` against their native schemas
+- `aifd/render.py`: `render_scan_matches`, `render_cost_rows` (Table +
+  JSON modes, color-coded confidence for scan, sorted-by-cost for cost)
+- 42 new tests across `test_vault_scan.py` / `test_vault_cost.py` /
+  `test_vault_cli.py` — total 237 passed, 0 ruff, 0 mypy
+
+### Notes
+
+- `aifd vault export` and `aifd vault sync` are deferred to v0.5+ per
+  the v0.4 CEO plan; both are in TODOS.md with context. v0.5 candidate
+  triggers: user reports wanting backup before any incident, or
+  cross-machine migration.
+- Model price table verified against vendor pages as of 2026-06-04.
+  The CLI footer always shows this date so users know when to
+  re-verify. To override locally without a release: copy
+  `aifd/vault/prices.py` and patch (no `--config` flag yet — deferred
+  to v0.5).
+
 ## [0.3.1] - 2026-06-03
 
 ### Added
@@ -188,6 +283,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   (Python 3.12+3.13 × Linux/macOS/Windows).
 - GitHub Actions release workflow targeting PyPI Trusted Publisher.
 
+[0.4.0]: https://github.com/xunull/aifd/releases/tag/v0.4.0
 [0.3.1]: https://github.com/xunull/aifd/releases/tag/v0.3.1
 [0.3.0]: https://github.com/xunull/aifd/releases/tag/v0.3.0
 [0.2.1]: https://github.com/xunull/aifd/releases/tag/v0.2.1

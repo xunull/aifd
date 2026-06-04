@@ -125,6 +125,101 @@ class QuestionAnswer:
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    """Per-event token accounting extracted from a provider's session events.
+
+    v0.4 base type for `aifd vault cost`. One row per measurable usage event:
+    Claude assistant message's `usage` field, or Codex `event_msg.token_count`
+    with `payload.info.total_token_usage`.
+
+    All counts default to 0 so callers can sum without nil guards. `model`
+    is None when the event predates Codex's `turn_context` (very early
+    sessions) or Claude's model echo (rare).
+
+    Attributes:
+        provider: "claude" | "codex" | (future) "cursor".
+        session_id: provider-native session id (jsonl stem / rollout uuid).
+        cwd: working directory the session ran in (None when unknown).
+        ts: event timestamp; None when unparseable.
+        model: model identifier as the provider records it
+            ("claude-opus-4-7", "gpt-4o", ...). None when absent.
+        input_tokens: fresh input tokens (not cached).
+        output_tokens: completion tokens.
+        cache_creation_input_tokens: tokens that landed in the cache
+            (Claude prompt-cache writes; counted at full input rate plus
+            the cache-write premium per Anthropic pricing).
+        cache_read_input_tokens: tokens served from cache; cheap.
+            Codex calls these `cached_input_tokens` and aifd normalizes.
+        reasoning_output_tokens: Codex / o1-style models' invisible
+            reasoning tokens. Billed at output rate. 0 for Claude.
+        source_path: jsonl path the event was read from (debug).
+    """
+
+    provider: str
+    session_id: str
+    cwd: Path | None
+    ts: datetime | None
+    model: str | None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+    reasoning_output_tokens: int = 0
+    source_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class CostRow:
+    """One row in the `aifd vault cost` output (project xmonth, or rolled up).
+
+    Cost numbers in USD. Token counts summed across all events that rolled
+    into this row. `model` is None for cross-model aggregations; populated
+    when grouping by model.
+    """
+
+    label: str  # project name, "YYYY-MM", model id, or composite
+    provider: str  # "claude" | "codex" | "mixed"
+    model: str | None
+    input_tokens: int
+    output_tokens: int
+    cache_creation_input_tokens: int
+    cache_read_input_tokens: int
+    reasoning_output_tokens: int
+    total_tokens: int
+    cost_usd: float
+    event_count: int  # number of (assistant) events that contributed
+
+
+@dataclass(frozen=True)
+class SensitiveMatch:
+    """One potential secret / PII finding from `aifd vault scan`.
+
+    Reported per match (so a file with 3 distinct API keys yields 3 rows).
+    The full secret value is NEVER stored on the dataclass — only a
+    redacted snippet (first/last 4 chars) so output is safe to share.
+
+    Attributes:
+        file: jsonl path the match was found in.
+        line: 1-indexed line number inside the file.
+        category: detector category ("openai_key", "github_pat",
+            "aws_access_key", "jwt", "email", "high_entropy", ...).
+        snippet_redacted: short preview, e.g. "sk-pr…REDACTED…4f9a".
+            Safe to print to a shared screen.
+        confidence: 1-10 self-rated. Regex hits are 8-9; entropy-only
+            heuristics are 4-6. Useful for filtering noisy output.
+        full_length: length of the matched substring, so a reader can
+            judge whether a 16-char hex string is a real token or a hash.
+    """
+
+    file: Path
+    line: int
+    category: str
+    snippet_redacted: str
+    confidence: int
+    full_length: int
+
+
+@dataclass(frozen=True)
 class InstalledSkill:
     """One skill installed on disk in a provider's skills directory.
 

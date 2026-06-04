@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation
+from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillInvocation, TokenUsage
 
 
 @runtime_checkable
@@ -87,5 +87,19 @@ class Provider(Protocol):
         no-op behavior. Only Claude Code currently emits AUQ as a
         structured tool_use; Codex equivalents would need a separate
         opt-in heuristic provider (see v0.3 TODOS.md).
+        """
+        return ()
+
+    def list_token_usage(
+        self, scope: Path | None = None
+    ) -> Iterable[TokenUsage]:
+        """Enumerate per-event token accounting from this provider's history.
+
+        scope=None: global scan. scope=Path: narrow to a single cwd.
+
+        Used by `aifd vault cost` (v0.4) to compute USD spend. Default
+        returns empty so providers without token telemetry stay benign;
+        Claude and Codex both implement this with their respective
+        `usage` / `total_token_usage` payloads.
         """
         return ()

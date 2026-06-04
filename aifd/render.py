@@ -17,7 +17,14 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from aifd.models import InstalledSkill, QuestionAnswer, Session, SkillStats
+from aifd.models import (
+    CostRow,
+    InstalledSkill,
+    QuestionAnswer,
+    SensitiveMatch,
+    Session,
+    SkillStats,
+)
 from aifd.providers._utils import split_recommended_suffix
 
 
@@ -667,6 +674,177 @@ def _render_question_card(qa: QuestionAnswer) -> str:
         '',
     ])
     return "\n".join(parts)
+
+
+# -------------------- vault scan / vault cost rendering (v0.4) --------------------
+
+_CONFIDENCE_STYLE: dict[int, str] = {
+    10: "bold red",
+    9: "red",
+    8: "yellow",
+    7: "yellow",
+    6: "dim",
+    5: "dim",
+    4: "dim",
+}
+
+
+def render_scan_matches(
+    matches: Sequence[SensitiveMatch],
+    *,
+    as_json: bool,
+    min_confidence: int,
+) -> None:
+    """Render PII/secret findings to stdout.
+
+    Filters by min_confidence at render time (caller decides default).
+    JSON output is the raw record (incl. redacted snippet) — never the
+    full secret value, which is not present in SensitiveMatch by design.
+    """
+    filtered = [m for m in matches if m.confidence >= min_confidence]
+
+    if as_json:
+        payload = [
+            {
+                "file": str(m.file),
+                "line": m.line,
+                "category": m.category,
+                "snippet_redacted": m.snippet_redacted,
+                "confidence": m.confidence,
+                "full_length": m.full_length,
+            }
+            for m in filtered
+        ]
+        json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return
+
+    console = Console()
+    if not filtered:
+        if matches:
+            console.print(
+                f"[dim]No findings at confidence >= {min_confidence}. "
+                f"{len(matches)} lower-confidence matches suppressed; "
+                f"use `--min-confidence N` to lower the threshold.[/dim]"
+            )
+        else:
+            console.print("[dim]No potential secrets found. ✓[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Conf", justify="right")
+    table.add_column("Category", style="green")
+    table.add_column("Snippet")
+    table.add_column("Len", justify="right", style="dim")
+    table.add_column("File:Line", overflow="ellipsis", max_width=_SOURCE_MAX)
+
+    for m in filtered:
+        style = _CONFIDENCE_STYLE.get(m.confidence, "")
+        table.add_row(
+            f"[{style}]{m.confidence}/10[/]" if style else f"{m.confidence}/10",
+            m.category,
+            m.snippet_redacted,
+            str(m.full_length),
+            f"{m.file.name}:{m.line}",
+        )
+
+    console.print(table)
+    # Footer: counts by category + total suppressed
+    by_cat: dict[str, int] = {}
+    for m in filtered:
+        by_cat[m.category] = by_cat.get(m.category, 0) + 1
+    suppressed = len(matches) - len(filtered)
+    cats = " · ".join(f"{n} {k}" for k, n in sorted(by_cat.items(), key=lambda x: -x[1]))
+    suppressed_text = (
+        f" · {suppressed} low-confidence suppressed" if suppressed else ""
+    )
+    console.print(
+        f"[dim]{len(filtered)} findings: {cats}{suppressed_text}[/dim]"
+    )
+
+
+def render_cost_rows(
+    rows: Sequence[CostRow],
+    *,
+    as_json: bool,
+    group_by: str,
+    prices_last_updated: str,
+) -> None:
+    """Render the per-group cost breakdown.
+
+    Footer shows: total spend + total events + the prices_last_updated
+    date so users know when to re-verify against vendor pricing pages.
+    """
+    if as_json:
+        payload = [
+            {
+                "label": r.label,
+                "provider": r.provider,
+                "model": r.model,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "cache_creation_input_tokens": r.cache_creation_input_tokens,
+                "cache_read_input_tokens": r.cache_read_input_tokens,
+                "reasoning_output_tokens": r.reasoning_output_tokens,
+                "total_tokens": r.total_tokens,
+                "cost_usd": round(r.cost_usd, 4),
+                "event_count": r.event_count,
+            }
+            for r in rows
+        ]
+        json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return
+
+    console = Console()
+    if not rows:
+        console.print("[dim]No token usage found.[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold cyan")
+    header = group_by.capitalize() if group_by else "Group"
+    table.add_column(header, overflow="ellipsis", max_width=40)
+    table.add_column("Provider", style="green")
+    table.add_column("Model", style="dim", overflow="ellipsis", max_width=24)
+    table.add_column("Events", justify="right", style="dim")
+    table.add_column("In (k)", justify="right")
+    table.add_column("Cache (k)", justify="right", style="dim")
+    table.add_column("Out (k)", justify="right")
+    table.add_column("Cost ($)", justify="right", style="bold")
+
+    for r in rows:
+        table.add_row(
+            r.label,
+            r.provider,
+            r.model or "—",
+            f"{r.event_count}",
+            f"{r.input_tokens / 1000:,.0f}",
+            f"{r.cache_read_input_tokens / 1000:,.0f}",
+            f"{(r.output_tokens + r.reasoning_output_tokens) / 1000:,.0f}",
+            f"{r.cost_usd:,.2f}",
+        )
+
+    console.print(table)
+    total = sum(r.cost_usd for r in rows)
+    total_events = sum(r.event_count for r in rows)
+    # Distinguish verified vs estimated rows so users see at a glance
+    # which numbers to trust. Anthropic prices are scraped from the
+    # vendor page; OpenAI rows are estimates (Cloudflare blocks our
+    # WebFetch on openai.com). Tracked by provider — once OpenAI prices
+    # get verified this needs to switch to per-row model verification.
+    verified_cost = sum(r.cost_usd for r in rows if r.provider == "claude")
+    estimated_cost = total - verified_cost
+    if estimated_cost > 0.01:
+        verification_note = (
+            f"claude verified · codex est ${estimated_cost:,.2f}"
+        )
+    else:
+        verification_note = "all verified"
+    console.print(
+        f"[dim]Total: [bold]${total:,.2f}[/bold] across "
+        f"{total_events:,} events · prices as of {prices_last_updated} "
+        f"({verification_note})[/dim]"
+    )
 
 
 def _short_id(session_id: str) -> str:

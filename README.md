@@ -208,6 +208,62 @@ aifd ai skill list --provider claude
 
 跨 provider 命名归一：Claude 的 `/gstack-office-hours` 和 Codex 的 `[$office-hours]` 都聚合成 `office-hours`。
 
+### `aifd vault scan` — 扫描 PII / secret 泄露（v0.4）
+
+定期跑一次，看你的 AI 历史里有没有不小心 paste 出去的 API key、token、内部 email 等：
+
+```bash
+# 默认扫所有 provider history，confidence >= 7（只显 regex 命中）
+aifd vault scan
+
+# JSON 输出（含 redacted snippet，永远不含完整 secret）
+aifd vault scan --json | jq
+
+# 加入熵检测（confidence 4，会有噪点）
+aifd vault scan --min-confidence 4
+
+# 只扫指定路径
+aifd vault scan --no-default-roots --root /path/to/scan
+```
+
+**安全保证**：完整 secret 值绝不出现在输出 / JSON / 日志中。`SensitiveMatch` 数据类只存 redacted snippet（首 4 + 尾 4 字符）。可以直接 paste 给同事 debug，不会泄露真 secret。
+
+支持检测：Anthropic / OpenAI / GitHub PAT / AWS access key / Slack token / JWT / email / 高熵字符串。详细原理见 [docs/vault.md](./docs/vault.md)。
+
+### `aifd vault cost` — 估算 token 用量 + USD 花费（v0.4）
+
+```bash
+# 按项目分组（默认）
+aifd vault cost
+
+# 按 model
+aifd vault cost --by model
+
+# 按月
+aifd vault cost --by month
+
+# 按 provider
+aifd vault cost --by provider
+
+# JSON 输出
+aifd vault cost --by project --json | jq
+
+# 看价格表里有哪些 model（debug 未知 model）
+aifd vault cost --list-models
+```
+
+输出含完整 token breakdown（fresh input / cache read / output / reasoning）+ USD 估算 + 底部 prices last_updated 日期。
+
+| 列 | 含义 |
+|---|---|
+| **In (k)** | 新输入 token（千）|
+| **Cache (k)** | cache read token（千，便宜得多）|
+| **Out (k)** | 输出 + reasoning token（千）|
+| **Cost ($)** | 该行 USD 估算 |
+| **Model** | 单一 model 显原名；多 model 显 `mixed (N)` |
+
+未知 model（不在价格表里）会显示 token 数但 cost = $0，方便你发现需要 update 表。
+
 ### `aifd ai claude skill list` / `aifd ai codex skill list` — 列出已装 skill
 
 ```bash
@@ -259,20 +315,27 @@ aifd/
 ├── cli/
 │   ├── _logging.py          # 所有 CLI 命令共享的日志配置
 │   ├── _runner.py           # 共享的 provider-query 框架（v0.3）
-│   └── ai/
-│       ├── session.py       # aifd ai session list
-│       ├── skill.py         # aifd ai skill list（v0.2）
-│       ├── question.py      # aifd ai question list（v0.3 + HTML v0.3.1）
-│       ├── claude/skill.py  # aifd ai claude skill list（v0.2.1）
-│       └── codex/skill.py   # aifd ai codex skill list（v0.2.1）
+│   ├── ai/
+│   │   ├── session.py       # aifd ai session list
+│   │   ├── skill.py         # aifd ai skill list（v0.2）
+│   │   ├── question.py      # aifd ai question list（v0.3 + HTML v0.3.1）
+│   │   ├── claude/skill.py  # aifd ai claude skill list（v0.2.1）
+│   │   └── codex/skill.py   # aifd ai codex skill list（v0.2.1）
+│   └── vault/               # v0.4
+│       ├── scan.py          # aifd vault scan (PII/secret 扫描)
+│       └── cost.py          # aifd vault cost (token + $)
 ├── providers/
 │   ├── base.py              # Provider Protocol，新 provider 必须实现
 │   ├── _utils.py            # 共享正则 / 命名归一 / frontmatter 解析
 │   ├── claude.py            # Claude Code adapter
 │   ├── codex.py             # Codex adapter
 │   └── registry.py          # 注册新 provider 的地方
+├── vault/                   # v0.4 业务逻辑
+│   ├── prices.py            # model → USD 价格表
+│   ├── cost.py              # 聚合 token → $
+│   └── scan.py              # PII/secret detector
 ├── aggregation.py           # skill 统计聚合（v0.2）
-├── models.py                # Session / SkillInvocation / SkillStats / InstalledSkill / QuestionAnswer
+├── models.py                # Session / SkillInvocation / SkillStats / InstalledSkill / QuestionAnswer / TokenUsage / CostRow / SensitiveMatch
 ├── paths.py                 # cwd 归一化
 └── render.py                # rich Table / JSON / HTML 渲染
 ```
