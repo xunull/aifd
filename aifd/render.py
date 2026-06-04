@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -760,6 +761,493 @@ def render_scan_matches(
     )
     console.print(
         f"[dim]{len(filtered)} findings: {cats}{suppressed_text}[/dim]"
+    )
+
+
+_SCAN_HTML_HEAD = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aifd vault scan · {n_matches} findings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #0e0e0e;
+    --muted: #6b6b6b;
+    --border: #e6e6e6;
+    --card-bg: #fafafa;
+    --code-bg: #f3f4f6;
+    --warn-bg: #fef3c7;
+    --warn-border: #f59e0b;
+    --warn-fg: #92400e;
+    --mark-bg: #fecaca;
+    --mark-border: #dc2626;
+    --mark-fg: #7f1d1d;
+    --conf-10: #b91c1c;
+    --conf-9: #c2410c;
+    --conf-8: #ca8a04;
+    --conf-7: #ca8a04;
+    --conf-low: #6b7280;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f0f10;
+      --fg: #e6e6e6;
+      --muted: #9ca3af;
+      --border: #2a2a2c;
+      --card-bg: #18181a;
+      --code-bg: #1f1f22;
+      --warn-bg: #422006;
+      --warn-border: #fbbf24;
+      --warn-fg: #fde68a;
+      --mark-bg: #7f1d1d;
+      --mark-border: #fca5a5;
+      --mark-fg: #fee2e2;
+      --conf-10: #f87171;
+      --conf-9: #fb923c;
+      --conf-8: #facc15;
+      --conf-7: #facc15;
+      --conf-low: #9ca3af;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); margin: 0; }
+  body {
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 24px 24px 80px;
+  }
+  main { max-width: 1100px; margin: 0 auto; }
+  header.page h1 {
+    font-size: 20px; font-weight: 600; margin: 0 0 4px;
+  }
+  header.page .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+  .warning {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-fg);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .warning strong { font-weight: 700; }
+  .summary {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-size: 13px; color: var(--muted);
+    padding: 12px 16px; background: var(--card-bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 24px;
+  }
+  .summary strong { color: var(--fg); font-weight: 600; }
+  section.file {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    background: var(--card-bg);
+    overflow: hidden;
+  }
+  section.file > h2 {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    margin: 0;
+    padding: 12px 18px;
+    background: var(--code-bg);
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+  }
+  section.file > h2 .count {
+    color: var(--muted); font-weight: 500; margin-left: 8px;
+  }
+  article.match {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+  }
+  article.match:first-of-type { border-top: none; }
+  article.match > header {
+    display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  .badge {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--code-bg);
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .badge.line { color: var(--muted); font-weight: 500; }
+  .badge.conf-10 { color: #fff; background: var(--conf-10); }
+  .badge.conf-9 { color: #fff; background: var(--conf-9); }
+  .badge.conf-8, .badge.conf-7 { color: #fff; background: var(--conf-8); }
+  .badge.conf-low { color: #fff; background: var(--conf-low); }
+  .badge.trunc {
+    color: var(--warn-fg);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+  }
+  .context {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+  }
+  mark.leak {
+    background: var(--mark-bg);
+    color: var(--mark-fg);
+    border: 1px solid var(--mark-border);
+    border-radius: 3px;
+    padding: 0 2px;
+    font-weight: 700;
+  }
+  details.raw {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  details.raw summary {
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  details.raw[open] summary { margin-bottom: 6px; }
+  details.raw pre {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11.5px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px 12px;
+    max-height: 280px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    margin: 0;
+  }
+  .empty {
+    text-align: center; color: var(--muted);
+    padding: 64px 16px;
+  }
+  /* ----- tabs (CSS-only, radio-driven) ----- */
+  .tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid transparent;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .tab:hover { background: var(--code-bg); color: var(--fg); }
+  .tab .count {
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel { display: none; }
+  /* TAB_DYNAMIC_CSS_PLACEHOLDER */
+</style>
+</head>
+<body>
+<main>
+"""
+
+_SCAN_HTML_TAIL = """\
+</main>
+</body>
+</html>
+"""
+
+
+def _confidence_class(c: int) -> str:
+    if c >= 10:
+        return "conf-10"
+    if c == 9:
+        return "conf-9"
+    if c >= 7:
+        return "conf-8"
+    return "conf-low"
+
+
+# Map of detector category → max confidence the detector emits. Sourced from
+# `_DETECTORS` in aifd.vault.scan so adding a new detector automatically
+# propagates here (no second list to maintain). `high_entropy` isn't in
+# _DETECTORS — it's the fallback layer that tops out at confidence 6.
+def _build_category_confidence() -> dict[str, int]:
+    from aifd.vault.scan import _DETECTORS
+    cmap = {cat: conf for cat, _pat, conf in _DETECTORS}
+    cmap["high_entropy"] = 6
+    return cmap
+
+
+_CATEGORY_CONFIDENCE: dict[str, int] = _build_category_confidence()
+
+
+def _category_sort_key(category: str) -> tuple[int, str]:
+    """Sort categories highest-confidence first; entropy and unknown go last.
+
+    The negation makes Python's stable sort put the most-dangerous category
+    at index 0 (anthropic_key / openai_key / github_pat at conf 10), with
+    bearer_token + email at conf 7, then high_entropy at conf 6. Unknown
+    categories get conf 0 and sink to the bottom. Alphabetical tiebreak
+    keeps the order deterministic across runs.
+    """
+    conf = _CATEGORY_CONFIDENCE.get(category, 0)
+    return (-conf, category)
+
+
+def _scan_tabs_css() -> str:
+    """Generate the per-category CSS rules for the tab pattern.
+
+    Two rules per category: (1) active-tab visual when its hidden radio is
+    checked, (2) panel visibility when its hidden radio is checked. Built
+    from `_CATEGORY_CONFIDENCE` so new detectors light up automatically.
+
+    Output is comma-separated to keep the byte budget small (~1 KiB total
+    across all 11 categories).
+    """
+    cats = sorted(_CATEGORY_CONFIDENCE, key=_category_sort_key)
+    label_selectors = ",\n  ".join(
+        f'#t-{c}:checked ~ .tabs label[for="t-{c}"]' for c in cats
+    )
+    panel_selectors = ",\n  ".join(
+        f"#t-{c}:checked ~ #p-{c}" for c in cats
+    )
+    return (
+        f"  {label_selectors} {{\n"
+        "    background: var(--code-bg);\n"
+        "    color: var(--fg);\n"
+        "    border-color: var(--border);\n"
+        "  }\n"
+        f"  {panel_selectors} {{ display: block; }}\n"
+    )
+
+
+# JSON string escapes per RFC 8259 §7. The scanner reads jsonl line-by-line
+# as raw text, so the captured chunks contain the literal two-char `\n`
+# sequence (backslash + 'n') rather than a real newline — that's what
+# users were seeing as ugly `\\n` noise in the web view. Unescaping at
+# render time turns the text back into something human-readable while
+# the CSS `white-space: pre-wrap` on `.context` honors the real newlines.
+_JSONL_ESCAPE_RE = re.compile(r'\\(["\\/bfnrt]|u[0-9a-fA-F]{4})')
+
+_JSONL_ESCAPE_MAP: dict[str, str] = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+}
+
+
+def _unescape_jsonl_chunk(s: str) -> str:
+    """Decode standard JSON string escapes inside a chunk of jsonl text.
+
+    Incomplete escapes at chunk boundaries (e.g. a trailing `\\`) are
+    left as-is — the regex only matches well-formed escapes, so partial
+    sequences fall through untouched. This matters because the windowed
+    context slices the source line without escape-awareness.
+    """
+    def _sub(m: re.Match[str]) -> str:
+        token = m.group(1)
+        if token.startswith("u"):
+            try:
+                return chr(int(token[1:], 16))
+            except ValueError:
+                # Defensive: regex already guarantees 4 hex digits, but
+                # surrogate pairs etc. could still hiccup. Leave raw.
+                return m.group(0)
+        return _JSONL_ESCAPE_MAP[token]
+    return _JSONL_ESCAPE_RE.sub(_sub, s)
+
+
+def render_scan_matches_html(matches: Sequence[SensitiveMatch]) -> str:
+    """Render scan findings as a self-contained HTML page.
+
+    Findings are grouped into one tab per detector category (anthropic_key,
+    openai_key, github_pat, …). Tabs are ordered by detector confidence
+    (most dangerous first), the first tab is selected by default, and
+    empty categories are hidden. Within each tab, matches are grouped by
+    source jsonl file. Each match shows its surrounding ~200 chars of
+    conversation context with the secret highlighted via `<mark>`, plus
+    an expandable raw jsonl line.
+
+    Every user-derived string is `html.escape`-d so a secret like
+    `</mark><script>` cannot break out of the highlight or inject script.
+
+    Caller is responsible for serving the returned string from a
+    localhost-only HTTP server — the page contains raw secrets and must
+    never be written to disk or served on a non-loopback interface. See
+    `aifd/cli/vault/scan.py` --web for the only authorized caller.
+    """
+    head = _SCAN_HTML_HEAD.replace(
+        "{n_matches}", str(len(matches))
+    ).replace(
+        "/* TAB_DYNAMIC_CSS_PLACEHOLDER */", _scan_tabs_css(),
+    )
+    parts: list[str] = [head]
+    generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    parts.append(
+        '<header class="page">\n'
+        '  <h1>aifd vault scan</h1>\n'
+        f'  <div class="meta">{html.escape(generated_at)} · {len(matches)} '
+        f'finding{"" if len(matches) == 1 else "s"}</div>\n'
+        '</header>\n'
+    )
+    parts.append(
+        '<div class="warning">\n'
+        '<strong>⚠ This page contains raw secrets.</strong> The aifd vault '
+        'scan --web server holds the matched values in process memory and '
+        'serves them only on 127.0.0.1. Press <kbd>Ctrl-C</kbd> in the '
+        'terminal when done to drop them. Do not share this URL, leave the '
+        'tab open on a shared machine, or screenshot the page.\n'
+        '</div>\n'
+    )
+
+    if not matches:
+        parts.append('<div class="empty">No findings ✓</div>\n')
+        parts.append(_SCAN_HTML_TAIL)
+        return "".join(parts)
+
+    # Group by category for the tab structure.
+    by_category: dict[str, list[SensitiveMatch]] = {}
+    for m in matches:
+        by_category.setdefault(m.category, []).append(m)
+    ordered_cats = sorted(by_category.keys(), key=_category_sort_key)
+
+    # Overall summary stays for at-a-glance totals; sorted by tab order
+    # (same as severity) so the visual flow is consistent.
+    cats_summary = " · ".join(
+        f"<strong>{len(by_category[c])}</strong> {html.escape(c)}"
+        for c in ordered_cats
+    )
+    parts.append(f'<div class="summary">{cats_summary}</div>\n')
+
+    # Hidden radios first — `~` general sibling combinator requires the
+    # checked input to appear BEFORE the panel in document order. First
+    # category gets `checked`.
+    for i, cat in enumerate(ordered_cats):
+        attr_checked = " checked" if i == 0 else ""
+        parts.append(
+            f'<input type="radio" name="cat" '
+            f'id="t-{html.escape(cat)}" class="tab-radio"{attr_checked}>\n'
+        )
+
+    # Visible tab bar (labels for the hidden radios).
+    parts.append('<nav class="tabs" role="tablist">\n')
+    for cat in ordered_cats:
+        n = len(by_category[cat])
+        parts.append(
+            f'  <label for="t-{html.escape(cat)}" class="tab" role="tab">'
+            f'{html.escape(cat)} '
+            f'<span class="count">{n}</span></label>\n'
+        )
+    parts.append('</nav>\n')
+
+    # Panels — one per category. Inside each, file-grouped sections.
+    for cat in ordered_cats:
+        cat_matches = by_category[cat]
+        parts.append(f'<div class="panel" id="p-{html.escape(cat)}" role="tabpanel">\n')
+        by_file: dict[Path, list[SensitiveMatch]] = {}
+        for m in cat_matches:
+            by_file.setdefault(m.file, []).append(m)
+        for file_path, file_matches in by_file.items():
+            n = len(file_matches)
+            parts.append(
+                '<section class="file">\n'
+                f'  <h2>{html.escape(str(file_path))}'
+                f'<span class="count">{n} finding{"" if n == 1 else "s"}</span></h2>\n'
+            )
+            for m in file_matches:
+                parts.append(_render_scan_match_article(m))
+            parts.append('</section>\n')
+        parts.append('</div>\n')
+
+    parts.append(_SCAN_HTML_TAIL)
+    return "".join(parts)
+
+
+def _render_scan_match_article(m: SensitiveMatch) -> str:
+    conf_class = _confidence_class(m.confidence)
+    badge_trunc = (
+        '<span class="badge trunc" title="Source line was clipped at 16 KiB '
+        'before scan; context_after may be incomplete.">line truncated</span>\n'
+        if m.line_truncated
+        else ""
+    )
+    if m.match_full is None:
+        # Defensive: render without context if caller forgot capture_context.
+        # Should never happen in --web mode; we still escape every string.
+        context_html = (
+            f'<p class="context">{html.escape(m.snippet_redacted)}</p>'
+        )
+    else:
+        # Two-step decode: unescape JSON string escapes (\\n → real
+        # newline, \\" → ", \\uXXXX → unicode), then html.escape for
+        # XSS safety. CSS `white-space: pre-wrap` on .context turns the
+        # real newlines into visible line breaks.
+        before = html.escape(_unescape_jsonl_chunk(m.context_before or ""))
+        after = html.escape(_unescape_jsonl_chunk(m.context_after or ""))
+        full = html.escape(_unescape_jsonl_chunk(m.match_full))
+        context_html = (
+            f'<pre class="context">{before}'
+            f'<mark class="leak">{full}</mark>'
+            f'{after}</pre>'
+        )
+    raw_block = ""
+    if m.raw_line is not None:
+        raw_block = (
+            '\n  <details class="raw">\n'
+            '    <summary>Show raw jsonl line</summary>\n'
+            f'    <pre>{html.escape(_unescape_jsonl_chunk(m.raw_line))}</pre>\n'
+            '  </details>'
+        )
+    return (
+        '<article class="match">\n'
+        '  <header>\n'
+        f'    <span class="badge line">line {m.line}</span>\n'
+        f'    <span class="badge">{html.escape(m.category)}</span>\n'
+        f'    <span class="badge {conf_class}">conf {m.confidence}/10</span>\n'
+        f'    {badge_trunc}'
+        '  </header>\n'
+        f'  {context_html}{raw_block}\n'
+        '</article>\n'
     )
 
 

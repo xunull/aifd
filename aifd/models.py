@@ -195,8 +195,18 @@ class SensitiveMatch:
     """One potential secret / PII finding from `aifd vault scan`.
 
     Reported per match (so a file with 3 distinct API keys yields 3 rows).
-    The full secret value is NEVER stored on the dataclass — only a
-    redacted snippet (first/last 4 chars) so output is safe to share.
+
+    Two operating modes:
+    1. Default (capture_context=False) — `snippet_redacted` is the only
+       field carrying any part of the secret, redacted to head + tail.
+       The record is safe to log, share, or paste. The full secret value
+       is NEVER stored on the dataclass.
+    2. Web mode (capture_context=True, only via `aifd vault scan --web`)
+       — `match_full` holds the raw secret and `context_*` / `raw_line`
+       hold the surrounding conversation text. The record is then
+       sensitive and lives in process memory only; the --web HTTP
+       server renders them to localhost and dies on Ctrl-C. They are
+       never written to disk. See docs/secret-scan.md Security section.
 
     Attributes:
         file: jsonl path the match was found in.
@@ -209,6 +219,20 @@ class SensitiveMatch:
             heuristics are 4-6. Useful for filtering noisy output.
         full_length: length of the matched substring, so a reader can
             judge whether a 16-char hex string is a real token or a hash.
+        context_before: ~200 chars from the source line immediately
+            before the match. None in default mode.
+        match_full: the raw matched substring. None in default mode.
+            ⚠ Populated only for --web mode; sensitive.
+        context_after: ~200 chars from the source line immediately after
+            the match. None in default mode.
+        raw_line: the full jsonl line the match was found in, kept so
+            the web UI can offer an "expand to raw event" view. None in
+            default mode. Subject to `_LINE_TRUNCATE` clipping in
+            `scan_file`; `line_truncated` flags when that happened.
+        line_truncated: True when the source jsonl line exceeded the
+            scanner's 16 KiB cap and was clipped before matching, so
+            `context_after` / `raw_line` may be incomplete. None in
+            default mode.
     """
 
     file: Path
@@ -217,6 +241,11 @@ class SensitiveMatch:
     snippet_redacted: str
     confidence: int
     full_length: int
+    context_before: str | None = None
+    match_full: str | None = None
+    context_after: str | None = None
+    raw_line: str | None = None
+    line_truncated: bool | None = None
 
 
 @dataclass(frozen=True)

@@ -24,8 +24,10 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aifd.models import SensitiveMatch
 
@@ -125,6 +127,17 @@ _ENTROPY_MIN_UNIQUE_CHARS = 23
 # entropy layer (the dominant cost in scans).
 _ENTROPY_MAX_CONFIDENCE = 6
 
+# Per-line clip in scan_file. Lines longer than this are truncated to
+# bound scan cost on pasted-file-in-one-line edge cases. Surfaced as a
+# constant so the web renderer can warn "(line truncated)" when a match
+# falls near the boundary.
+_LINE_TRUNCATE = 16384
+
+# Window of characters captured before / after the match in web mode.
+# Wide enough to read a sentence around the leak; narrow enough that 1369
+# findings * 2 windows * 200B ≈ 550KB stays cheap in memory.
+_WEB_CONTEXT_WINDOW = 200
+
 
 def shannon_entropy(s: str) -> float:
     """Shannon entropy in bits per character."""
@@ -151,18 +164,25 @@ def redact(value: str) -> str:
 
 
 def scan_file(
-    path: Path, min_confidence: int = 1
+    path: Path, min_confidence: int = 1, capture_context: bool = False
 ) -> Iterable[SensitiveMatch]:
     """Yield SensitiveMatch rows for one jsonl file (or any text file).
 
     Reads line-by-line so we can attribute matches to a line number for
-    later `aifd vault redact` lookup. Lines > 16KB are truncated to
-    bound scan cost on pasted-file-in-one-line edge cases.
+    later `aifd vault redact` lookup. Lines > `_LINE_TRUNCATE` (16 KiB)
+    are clipped to bound scan cost on pasted-file-in-one-line edge cases;
+    when `capture_context=True` and the line was clipped, every match
+    from that line carries `line_truncated=True` so the web UI can warn.
 
     `min_confidence` is propagated to `_scan_line` so the entropy layer
     (which produces confidence 4-6 only) is skipped entirely when the
     caller will throw away anything below 7. This is the dominant
     perf win for the default `aifd vault scan` command (~16x faster).
+
+    `capture_context=True` populates `context_before` / `match_full` /
+    `context_after` / `raw_line` on each match. Off by default to
+    preserve the "never persist secret" invariant for all non-web
+    callers (table renderer, --json, library users).
     """
     try:
         f = path.open("r", encoding="utf-8", errors="replace")
@@ -173,15 +193,26 @@ def scan_file(
     try:
         with f:
             for line_no, raw in enumerate(f, start=1):
-                if len(raw) > 16384:
-                    raw = raw[:16384]
-                yield from _scan_line(path, line_no, raw, min_confidence)
+                truncated = len(raw) > _LINE_TRUNCATE
+                if truncated:
+                    raw = raw[:_LINE_TRUNCATE]
+                yield from _scan_line(
+                    path, line_no, raw, min_confidence,
+                    capture_context=capture_context,
+                    line_truncated=truncated,
+                )
     except OSError as exc:
         logger.warning("IO error reading %s: %s", path, exc)
 
 
 def _scan_line(
-    path: Path, line_no: int, line: str, min_confidence: int
+    path: Path,
+    line_no: int,
+    line: str,
+    min_confidence: int,
+    *,
+    capture_context: bool = False,
+    line_truncated: bool = False,
 ) -> Iterable[SensitiveMatch]:
     seen: set[tuple[str, str]] = set()
 
@@ -199,7 +230,18 @@ def _scan_line(
                 # Skip detectors that can't pass the caller's threshold.
                 continue
             for m in pattern.finditer(line):
-                full = m.group(1) if m.lastindex else m.group(0)
+                # For detectors with a capture group (bearer_token), the
+                # secret is group(1) while the highlight span should
+                # cover the full match (e.g. "Bearer sk-…"). For others
+                # the secret IS the full match.
+                if m.lastindex:
+                    full = m.group(1)
+                    span_start, span_end = m.span(1)
+                else:
+                    full = m.group(0)
+                    span_start, span_end = m.span(0)
+                if _is_suppressed(full, line, span_start, span_end):
+                    continue
                 key = (category, full)
                 if key in seen:
                     continue
@@ -211,6 +253,10 @@ def _scan_line(
                     snippet_redacted=redact(full),
                     confidence=confidence,
                     full_length=len(full),
+                    **_context_kwargs(
+                        line, span_start, span_end, capture_context,
+                        line_truncated,
+                    ),
                 )
 
     # Entropy layer (confidence 4-6). Skip whole layer if caller wouldn't
@@ -223,6 +269,9 @@ def _scan_line(
         if _ENTROPY_SKIP_RE.match(s):
             continue
         if len(s) < _ENTROPY_MIN_LENGTH or len(s) > _ENTROPY_MAX_LENGTH:
+            continue
+        span_start, span_end = m.span(0)
+        if _is_suppressed(s, line, span_start, span_end):
             continue
 
         # B: unique-chars upper bound. Shannon entropy of any string s is
@@ -250,26 +299,270 @@ def _scan_line(
             snippet_redacted=redact(s),
             confidence=confidence,
             full_length=len(s),
+            **_context_kwargs(
+                line, span_start, span_end, capture_context, line_truncated,
+            ),
         )
 
 
+# ----- False-positive suppression -----
+#
+# Detectors are intentionally greedy (regex covers many fence cases, entropy
+# floor catches unknowns). A small post-match suppression layer rejects
+# matches that look right structurally but obviously come from code rather
+# than real PII. Each rule has a name + reason for `aifd vault scan -vv`
+# debug logging so users can verify a suppression was intentional.
+#
+# Add rules sparingly. False suppression silently drops real findings, which
+# is worse than the FP noise it's solving. Quote the FP class you saw +
+# rough frequency in the rule docstring.
+
+
+@dataclass(frozen=True)
+class _Suppressor:
+    """One false-positive filter applied after a detector match.
+
+    `check(match_full, line, span_start, span_end)` returns True to discard
+    the match. Suppressors run in order and short-circuit on the first hit.
+    """
+    name: str
+    reason: str
+    check: Callable[[str, str, int, int], bool]
+
+
+def _is_escape_prefix(
+    match_full: str, line: str, span_start: int, span_end: int
+) -> bool:
+    """True when the match starts immediately after a literal backslash.
+
+    The jsonl bytes the scanner reads are JSON-encoded: a newline inside
+    a string is the two-char sequence `\\` + `n`. The email regex's `\\b`
+    word boundary fires between `\\` (non-word) and `n` (word), letting
+    patterns like `\\n@click.group` get caught as `n@click.group` (local
+    `n`, domain `click`, TLD `group`). Same story for `\\n@router.post`,
+    `\\n@pytest.fixture`, `\\t@nb.njit` and friends.
+
+    Measured on a 50-file jsonl sample: 80.8% of email matches are this
+    class. Real emails (preceded by whitespace, quote, or text) are not
+    affected.
+    """
+    return span_start > 0 and line[span_start - 1] == "\\"
+
+
+# RFC 2606 §3 — second-level domains reserved for examples and docs.
+# Per spec, "the labels EXAMPLE.COM, EXAMPLE.ORG, and EXAMPLE.NET (and
+# the labels that compose them) are reserved" — so subdomains like
+# api.example.com and mail.example.org are also fake by definition.
+_RFC2606_RESERVED_SLDS: frozenset[str] = frozenset({
+    "example.com",
+    "example.org",
+    "example.net",
+})
+
+# RFC 2606 §2 — top-level domains reserved for testing and special-use.
+# Any email whose domain ends with one of these is by definition a
+# fake / synthetic address. The leading `.` is part of the suffix so
+# `attest.com` doesn't get matched by `.test`.
+_RFC2606_RESERVED_TLDS: tuple[str, ...] = (
+    ".test",
+    ".example",
+    ".invalid",
+    ".localhost",
+)
+
+# Precomputed suffix tuple for the `str.endswith` fast path.
+# - `.example.com` / `.example.org` / `.example.net` catch subdomains of
+#   the RFC 2606 §3 SLDs (`api.example.com`, `mail.example.org`, etc).
+# - `.test` / `.example` / `.invalid` / `.localhost` are RFC 2606 §2 TLDs.
+# The SLD-itself case (domain == "example.com" exactly) is handled by
+# the `in _RFC2606_RESERVED_SLDS` check before falling through to this.
+_RFC2606_RESERVED_SUFFIXES: tuple[str, ...] = tuple(
+    f".{sld}" for sld in _RFC2606_RESERVED_SLDS
+) + _RFC2606_RESERVED_TLDS
+
+# Sender-only mailbox convention. RFC doesn't define this but every MTA
+# treats these as send-only, never-accepts-mail addresses. They are not
+# real PII for any individual — they're hardcoded service identities.
+_NOREPLY_LOCAL_PARTS: frozenset[str] = frozenset({
+    "noreply",
+    "no-reply",
+    "do-not-reply",
+    "donotreply",
+})
+
+# Common documentation / UI placeholder domains. Not IANA-reserved like
+# RFC 2606 — most of these are genuinely registered domains with real
+# owners — but they're conventionally used as "replace with your own"
+# placeholders in tutorials, error messages, and form mockups. The PII
+# risk of suppressing them is the rare user who actually uses an
+# `email.com` mailbox; conservative judgement says doc-placeholders
+# outnumber that by orders of magnitude.
+_PLACEHOLDER_EMAIL_DOMAINS: frozenset[str] = frozenset({
+    "domain.com",       # literal "domain" — the canonical placeholder noun
+    "email.com",        # literal "email" — common in form-field mockups
+    "yourdomain.com",   # `your` + domain — explicit "fill in your own"
+    "yoursite.com",     # `your` + site
+    "mysite.com",       # `my` + site
+})
+
+
+def _is_reserved_email_domain(
+    match_full: str, line: str, span_start: int, span_end: int
+) -> bool:
+    """RFC 2606 reserved domains and their subdomains (never real PII).
+
+    §3 SLDs: example.com / example.org / example.net AND any subdomain
+    (api.example.com, mail.example.org, www.example.net, …) since RFC
+    2606 §3 reserves "the labels that compose them" too.
+    §2 TLDs: .test / .example / .invalid / .localhost.
+    Case-insensitive per DNS spec (RFC 1035 §2.3.3).
+
+    Measured: 5.1% of remaining email matches on real data (and rising
+    once subdomains like @api.example.com count, which earlier did not).
+    """
+    at = match_full.rfind("@")
+    if at < 0:
+        return False
+    domain = match_full[at + 1:].lower()
+    if domain in _RFC2606_RESERVED_SLDS:
+        return True
+    return domain.endswith(_RFC2606_RESERVED_SUFFIXES)
+
+
+def _is_noreply_local_part(
+    match_full: str, line: str, span_start: int, span_end: int
+) -> bool:
+    """Sender-only mailbox convention (`noreply@*` family).
+
+    Variants: noreply, no-reply, do-not-reply, donotreply.
+    Case-insensitive (most MTAs normalize local parts even though RFC
+    5321 §4.1.2 makes them technically case-sensitive).
+
+    Measured: 9.3% of remaining email matches on real data.
+    """
+    at = match_full.find("@")
+    if at < 0:
+        return False
+    return match_full[:at].lower() in _NOREPLY_LOCAL_PARTS
+
+
+def _is_placeholder_email_domain(
+    match_full: str, line: str, span_start: int, span_end: int
+) -> bool:
+    """Common documentation / UI placeholder domains.
+
+    Unlike `_is_reserved_email_domain` (which checks IANA-canonical
+    RFC 2606 reservations), these domains are conventionally used as
+    placeholders in tutorials and form mockups. They are technically
+    registered with real owners, so there is a small nonzero risk of
+    suppressing a real user's mailbox. Conservative judgement: doc
+    placeholders dominate real `name@email.com` mail orders of
+    magnitude in real-world history data.
+
+    No subdomain match here (unlike RFC 2606): `api.domain.com` is
+    likely a real internal service, not a placeholder.
+    """
+    at = match_full.rfind("@")
+    if at < 0:
+        return False
+    return match_full[at + 1:].lower() in _PLACEHOLDER_EMAIL_DOMAINS
+
+
+_SUPPRESSORS: tuple[_Suppressor, ...] = (
+    _Suppressor(
+        name="escape_prefix",
+        reason="match starts after backslash; likely jsonl-escaped \\n + code decorator",
+        check=_is_escape_prefix,
+    ),
+    _Suppressor(
+        name="reserved_email_domain",
+        reason="RFC 2606 reserved domain (example.com / .test / .invalid / etc); never real PII",
+        check=_is_reserved_email_domain,
+    ),
+    _Suppressor(
+        name="noreply_local_part",
+        reason="noreply / no-reply / do-not-reply local part; sender-only mailbox convention",
+        check=_is_noreply_local_part,
+    ),
+    _Suppressor(
+        name="placeholder_email_domain",
+        reason="common doc/UI placeholder domain (domain.com / email.com / yourdomain.com / etc)",
+        check=_is_placeholder_email_domain,
+    ),
+)
+
+
+def _is_suppressed(
+    match_full: str, line: str, span_start: int, span_end: int
+) -> bool:
+    """Return True if any suppressor wants to drop this match.
+
+    Suppressed matches never reach SensitiveMatch construction, so they
+    are absent from --table, --json, and the --web HTML view alike.
+    Run `aifd vault scan -vv` to see the suppressor name and reason on
+    each drop.
+    """
+    for s in _SUPPRESSORS:
+        if s.check(match_full, line, span_start, span_end):
+            logger.debug(
+                "scan suppressed [%s] at offset %d: %r (%s)",
+                s.name, span_start, match_full, s.reason,
+            )
+            return True
+    return False
+
+
+def _context_kwargs(
+    line: str,
+    span_start: int,
+    span_end: int,
+    capture_context: bool,
+    line_truncated: bool,
+) -> dict[str, Any]:
+    """Build the optional context fields for SensitiveMatch.
+
+    Returns empty when `capture_context=False` so callers preserve the
+    "redacted-only" invariant. When True, slices a ±_WEB_CONTEXT_WINDOW
+    char window around the match plus the full raw line.
+
+    Heterogeneous value types (str/bool) preclude a stricter dict
+    annotation; the caller unpacks straight into the SensitiveMatch
+    dataclass keyword args, which carry the precise per-field types.
+    """
+    if not capture_context:
+        return {}
+    return {
+        "context_before": line[max(0, span_start - _WEB_CONTEXT_WINDOW):span_start],
+        "match_full": line[span_start:span_end],
+        "context_after": line[span_end:span_end + _WEB_CONTEXT_WINDOW],
+        "raw_line": line,
+        "line_truncated": line_truncated,
+    }
+
+
 def scan_paths(
-    roots: Iterable[Path], min_confidence: int = 1
+    roots: Iterable[Path],
+    min_confidence: int = 1,
+    capture_context: bool = False,
 ) -> Iterable[SensitiveMatch]:
     """Walk the given roots looking for `*.jsonl` files.
 
     `min_confidence` is propagated to `scan_file` -> `_scan_line` so
     the expensive entropy layer can be short-circuited when the caller
     won't accept matches below 7.
+
+    `capture_context=True` enables the --web mode payload (raw secret +
+    surrounding text) on every emitted match. Default False keeps the
+    invariant: only the redacted snippet lives on the dataclass.
     """
     for root in roots:
         if not root.exists():
             continue
         if root.is_file():
-            yield from scan_file(root, min_confidence)
+            yield from scan_file(root, min_confidence, capture_context)
             continue
         try:
             for path in sorted(root.rglob("*.jsonl")):
-                yield from scan_file(path, min_confidence)
+                yield from scan_file(path, min_confidence, capture_context)
         except OSError as exc:
             logger.warning("Cannot walk %s: %s", root, exc)

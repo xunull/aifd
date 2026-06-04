@@ -14,8 +14,35 @@
 **不做**的事：
 - 不解析 JSON 结构（直接行级 regex / entropy）—— 因为 jsonl 里 secret 可能在任何字段（用户问 AI 时 paste 的 `.env`、AI 生成的 code 示例、debug log fragment 等等），按 JSON path 走会漏掉一大半
 - 不修改任何文件（read-only）
-- 不发任何网络请求
-- 不存完整 secret 值到结果数据类 / 日志 / 文件——只存 redacted snippet
+- 不发任何网络请求（**例外**：`--web` 模式启动 `127.0.0.1` 本地 HTTP server，仅 loopback 可达）
+- 不存完整 secret 值到结果数据类 / 日志 / 文件——只存 redacted snippet（**例外**：`--web` 模式见下节）
+
+## ⚠ --web 模式与安全 invariant
+
+默认 `aifd vault scan` 严守一条 invariant：**完整 secret 永不离开 `_scan_line` 的局部变量**。`SensitiveMatch` 只带 `snippet_redacted`（首 4 + 尾 4），输出可以随便贴、log、share。
+
+`--web` 模式是这条 invariant 的**唯一例外**，因为"在原始对话上下文中标红泄漏部分"的需求本质上要求完整 secret + 周围文本一起进内存。trade-off：
+
+| 维度 | 默认模式 | `--web` 模式 |
+|---|---|---|
+| `SensitiveMatch.match_full` | `None` | 含完整 secret |
+| `SensitiveMatch.context_before/after` | `None` | 各 ~200 字符 |
+| `SensitiveMatch.raw_line` | `None` | 整 jsonl 行 |
+| 写文件到磁盘 | 仅 `--json` stdout | **永不写** |
+| 网络暴露 | 无 | `127.0.0.1` ephemeral port, loopback only |
+| 生命周期 | scan 完成即 GC | server 进程退出（Ctrl-C）即从内存释放 |
+
+**`--web` 的缓解措施**（按强度递降）：
+
+1. **不落盘** — HTML 在内存里组装，HTTP 响应直接 byte stream 出去。Spotlight 没东西可索引、Time Machine 没东西可备份、CleanShot 抓不到磁盘文件。
+2. **loopback 绑定** — `socketserver.TCPServer(("127.0.0.1", 0), ...)`。kernel 自动挑空 port。同机其他用户 / LAN 邻居均无法访问。
+3. **Ctrl-C 即销毁** — server 一停，Python 进程整体退出，secrets 跟着 GC。
+4. **顶部警告横幅** — HTML 顶部显眼提醒 "不要 share URL / 不要在公共显示器留 tab / 不要截图"。
+5. **`html.escape` 全覆盖** — match 内容、context、文件路径全部 entity-encoded。即便泄露内容长得像 `</mark><script>alert(1)</script>` 也无法 break out of `<mark>` 或注入脚本。
+
+**什么时候用 `--web`**：在私人机器上、自己屏幕上、需要弄清楚"这泄露的 key 究竟出现在哪句对话里、是 paste 还是模型回吐"时。
+
+**什么时候**不**用 `--web`**：远程会话（SSH X forwarding 不安全）、共享显示器、要把扫描结果传给同事 review。这些场景用默认 redacted 模式。
 
 ## 总数据流
 
@@ -158,12 +185,22 @@ class SensitiveMatch:
     file: Path                  # jsonl 路径
     line: int                   # 1-indexed 行号
     category: str               # detector id
-    snippet_redacted: str       # 永不含完整值
+    snippet_redacted: str       # 永远 redacted（head 4 + tail 4）
     confidence: int             # 1-10
     full_length: int            # 完整 token 的字符数（帮判断真假）
+
+    # 以下字段：默认 None，仅 --web 模式（capture_context=True）填充。
+    # 见上方 "⚠ --web 模式与安全 invariant"。
+    context_before: str | None = None
+    match_full: str | None = None      # ⚠ 完整 secret，敏感
+    context_after: str | None = None
+    raw_line: str | None = None        # 整 jsonl 行
+    line_truncated: bool | None = None # 源行 > 16 KiB 被裁过
 ```
 
-**关键安全设计**：`snippet_redacted` 是**唯一**含 secret 子串的字段，且已被 redacted。完整 secret value 从 `_scan_line` 的局部变量 → 立即 `redact(full)` → 进 `SensitiveMatch.snippet_redacted` → emit 出去后 GC 回收。完整 secret value **不在任何持久化结构里**。
+**关键安全设计**：默认模式下 `snippet_redacted` 是**唯一**含 secret 子串的字段，且已被 redacted。完整 secret value 从 `_scan_line` 的局部变量 → 立即 `redact(full)` → 进 `SensitiveMatch.snippet_redacted` → emit 出去后 GC 回收。
+
+`--web` 模式下 `match_full / context_* / raw_line` 携带原始内容，**生命周期严格限定在 Python 进程内**（HTTP 响应直接 stream byte，不落盘；Ctrl-C 立刻 GC）。任何**非** `--web` 的 caller（`render_scan_matches` 表格、`--json` 序列化、库用户）拿到的仍然只有 redacted 字段。
 
 ## redact 函数
 

@@ -188,3 +188,19 @@
 **Cons**：增加线程复杂度；多 provider 错误聚合和 logging 排序变难调试。
 **Context**：MVP 串行 100ms 内，问题不大；加 Cursor 后可能 300-500ms，触发用户感知卡。
 **Depends on / blocked by**：Cursor provider 加入后实测确认 wall-clock 时延。
+
+### `aifd vault scan --exclude REGEX` 用户自定义 FP 排除
+**What**：CLI flag 允许用户传入正则，匹配的 match 在 emit 之前被丢弃；可重复。
+**Why**：内置 `_SUPPRESSORS` 框架已经处理 escape_prefix（80% email FP）。当用户在自己数据上发现新的 FP 类时，希望不改代码就能本地配置过滤。
+**Pros**：用户对自己数据的 noise pattern 比我们更了解；降低再次提 issue / PR 的门槛。
+**Cons**：滥用会过度抑制真信号；UX 上需要 `--show-suppressed` 配套调试 flag 才能验证排除是否如预期。
+**Context**：`_SUPPRESSORS` 是内部 frozen tuple；外加一个 `(name="user_regex", reason="--exclude pattern", check=lambda m,l,s,e: pat.search(m))` 类型条目；CLI 处接收 `--exclude PATTERN`（多次可重复）转成 list[Pattern]。
+**Depends on / blocked by**：无；可在 v0.5 单独发布。
+
+### `aifd vault scan --show-suppressed` 调试 flag
+**What**：CLI flag 在输出末尾追加一段「被 suppressor 丢弃的 match」表，含 suppressor name + redacted snippet + file:line。
+**Why**：用户配置 `--exclude` 或调 detector 时需要看到「我以为 X 命中了，为什么没出现在表里」。当前能力是 `-vv` DEBUG log；但 log 散乱、按时间序，不利于审计。
+**Pros**：让 suppression layer 不再是黑盒；calibration 工具。
+**Cons**：要把 suppressed match 保留到最终输出阶段（额外内存）；HTML / JSON 也需要承载这个 section。
+**Context**：scan.py 现在 suppressed match 直接 `continue` 丢弃；要改成 yield 出 `(SensitiveMatch, suppressor_name)` 元组，render 层负责选择是否显示。
+**Depends on / blocked by**：建议与 `--exclude` 一起做（两者形成 calibration 闭环）。

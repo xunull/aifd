@@ -3,6 +3,103 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-06-04
+
+### Added
+
+#### `aifd vault scan --web` — browser UI with redacted secrets in context
+
+New flag opens a localhost-only HTTP server (`127.0.0.1`, kernel-picked
+ephemeral port) that renders findings as an HTML page with:
+
+- Per-category tabs (`anthropic_key`, `openai_key`, …, `high_entropy`),
+  ordered by detector confidence DESC — most dangerous category first
+- CSS-only tab switching (radio + sibling combinator) — zero JS
+- Each finding shows ±200 chars of conversation context around the
+  secret, with the leak highlighted via `<mark>`
+- Expandable `<details>` block per finding for the full raw jsonl line
+- JSON escape sequences (`\n` / `\t` / `\"` / `\uXXXX`) are decoded so
+  conversation context reads naturally instead of showing literal `\n`
+- Warning banner: "this page contains raw secrets; press Ctrl-C in the
+  terminal when done"
+- 16 KiB truncation badge surfaces when a scan-clipped line might have
+  cut off `context_after`
+
+Architecture: nothing is written to disk. Findings live in process
+memory; the HTTP server dies on Ctrl-C and secrets drop with it. Server
+binds 127.0.0.1 only — never reachable from another host on the LAN.
+`SensitiveMatch` gained five optional fields (`context_before` /
+`match_full` / `context_after` / `raw_line` / `line_truncated`) that
+populate only when `capture_context=True` (via `--web`); all other
+code paths continue to carry just `snippet_redacted`. See
+`docs/secret-scan.md` Security section for the dual-mode posture.
+
+`--web` and `--json` are mutually exclusive (interactive vs pipe).
+
+#### Suppressor framework + 4 built-in FP filters
+
+Scan now runs a post-match suppression layer before emitting matches.
+Each suppressor is a named predicate with a debug-loggable reason
+(`aifd vault scan -vv` surfaces every suppression). Built-in rules:
+
+- **`escape_prefix`** — matches starting right after a literal `\` in
+  the source line are dropped. Catches the `\n@click.group` /
+  `\n@router.post` / `\n@pytest.fixture` class where the email regex's
+  `\b` word boundary fires between the escape and the decorator's
+  module name. Measured on 50-file sample: 80.8% of email matches.
+- **`reserved_email_domain`** — RFC 2606 §3 SLDs (`example.com` /
+  `.org` / `.net`) including subdomains (`api.example.com` etc, since
+  RFC 2606 reserves "the labels that compose them") + §2 TLDs
+  (`.test` / `.example` / `.invalid` / `.localhost`). Case-insensitive.
+- **`noreply_local_part`** — `noreply@` / `no-reply@` / `do-not-reply@`
+  / `donotreply@` (case-insensitive). SMTP sender-only convention;
+  not PII for an individual.
+- **`placeholder_email_domain`** — common doc/UI placeholder domains:
+  `domain.com` / `email.com` / `yourdomain.com` / `yoursite.com` /
+  `mysite.com`. No subdomain match (`api.email.com` is likely a real
+  service endpoint, not a placeholder).
+
+Cumulative impact on a real history: 953 email findings at v0.4.0 →
+271 after all four suppressors land = **71.6% noise reduction**, zero
+real-PII loss verified via regression tests.
+
+### Improved
+
+#### `aifd vault scan` ~9.5s on 832 MB jsonl (was ~14.5s, ~50s pre-v0.4)
+
+OPT-3 prefix prefilter swapped its Python regex alternation for a
+substring `in` loop (`_QUICK_PREFIX_LITERALS` + `_has_vendor_anchor`).
+C `strstr` runs 3.4× faster than NFA alternation on the same workload
+(micro-benchmark). End-to-end scan: 14.5s → 9.3s. Cumulative since
+v0.3.x: ~5.4× wall-clock speedup.
+
+DRY meta-test (`test_quick_prefix_covers_all_regex_detectors`) updated
+to use the new substring helper. Detector list and prefilter literals
+stay synchronized at test time.
+
+### Fixed
+
+- The RFC 2606 suppressor's first cut only matched exact SLDs
+  (`example.com`); subdomains (`api.example.com`, `mail.example.org`)
+  leaked through. Predicate now matches both the SLD itself and any
+  subdomain of it, per spec wording ("the labels that compose them
+  are reserved"). Regression test added.
+
+### Performance
+
+- `_has_vendor_anchor` substring loop: 3.4× faster than alternation
+  regex on the hot path
+- Suppressors add < 50 ms total on 1369 raw matches (negligible)
+- Web HTML rendering: 1369 findings → 6 MB HTML in < 100 ms
+
+### Documentation
+
+- `docs/secret-scan.md` — new "⚠ --web 模式与安全 invariant" section
+  documenting the dual-mode security posture of `SensitiveMatch`
+- `TODOS.md` — added v0.5 candidates: `aifd vault scan --exclude REGEX`
+  (user-configurable suppressors) and `--show-suppressed` (debug flag
+  surfacing suppressed matches with reasons)
+
 ## [0.4.0] - 2026-06-04
 
 ### Added
