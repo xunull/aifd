@@ -1,11 +1,15 @@
 # aifd
 
-Two ways to look at your AI coding history across Claude Code, Codex, and (soon) Cursor:
+跨 Claude Code、Codex、（即将支持）Cursor 的 AI 编码历史浏览器。从「我的目录 / 我用过的 skill / AI 问过我什么」的视角出发，而不是每个工具各自的私有视角。
 
-**1. Per-directory session listing**
+每个 AI 编码工具都把历史存在自己的私有格式里。「这个项目里我有哪些 AI session？」「我每天到底用了哪些 skill？」「上周 AI 问过我什么决定我选了什么？」——以前这些问题没有统一答案，现在 `aifd` 一行命令搞定。
+
+## 三种视角看你的 AI 历史
+
+**1. 按目录列 session（v0.1）**
 
 ```text
-$ aifd ai session list                # in any project directory
+$ aifd ai session list                # 在任意项目目录里跑
 ┏━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
 ┃ Provider ┃ Session  ┃ Started ┃ Events ┃ Title            ┃ Source           ┃
 ┡━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
@@ -14,10 +18,24 @@ $ aifd ai session list                # in any project directory
 └──────────┴──────────┴─────────┴────────┴──────────────────┴──────────────────┘
 ```
 
-**2. Cross-tool skill usage stats (v0.2)**
+**2. 复盘 AI 问过你的问题（v0.3）**
 
 ```text
-$ aifd ai skill list                  # default global, --cwd to limit
+$ aifd ai question list --cwd --limit 5
+┏━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃    Time ┃ Project ┃ Question           ┃ Your Choice      ┃ Recommended      ┃
+┡━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ 29m ago │ aifd    │ D8 — 这个 CEO plan │ A) 跑            │ A) 跑            │
+│         │         │ 下一步走哪里？     │ /plan-eng-review │ /plan-eng-review │
+│ 44m ago │ aifd    │ D7 — 写不写 docs?  │ A) 写            │ A) 写            │
+└─────────┴─────────┴────────────────────┴──────────────────┴──────────────────┘
+5 questions in /path/to/proj | recommended hit rate: 80% (4/5) | 0 unanswered
+```
+
+**3. 跨工具 skill 使用统计（v0.2）**
+
+```text
+$ aifd ai skill list                  # 默认全局；--cwd 限定当前目录
 ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━┓
 ┃ Skill           ┃ Claude ┃ Codex ┃ Total ┃ Last Used ┃ Projects ┃
 ┡━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━┩
@@ -27,155 +45,248 @@ $ aifd ai skill list                  # default global, --cwd to limit
 └─────────────────┴────────┴───────┴───────┴───────────┴──────────┘
 ```
 
-Every AI coding tool stores history in its own private format. That makes
-"which AI sessions have I had in this project?" and "what skills do I actually
-use day-to-day?" questions with no single answer — until now. `aifd` reads
-each tool's storage from the user's perspective ("this directory", "these
-skills"), not the vendor's perspective ("my history").
-
-## Install
+## 安装
 
 ```bash
-# with pipx (recommended)
+# 推荐用 pipx
 pipx install aifd
 
-# or with uv
-uvx aifd ai session list   # one-shot
-uv tool install aifd       # persistent
+# 或者用 uv
+uvx aifd ai session list   # 一次性
+uv tool install aifd       # 持久安装
 
-# or with pip
+# 或者用 pip
 pip install aifd
 ```
 
-Requires Python 3.12+.
+需要 Python 3.12+。
 
-## Usage
+## 使用方法
 
-### `aifd ai session list` — sessions in the current directory
+### `aifd ai question list` — 复盘 AI 问过你的问题（v0.3）
+
+最有意思的命令。把 Claude Code 在每次 `AskUserQuestion` 工具调用里问过的每个问题、连同你的选择，都列出来。**主要用途**：
+
+- 「上周 AI 问过我哪些关键决策？我都选了什么？」
+- 「我多大比例跟了推荐选项 vs 反推荐？」
+- 「上次别的项目里我被问过 X 主题，我当时选了啥？」
+
+#### 基本用法
 
 ```bash
-# list everything for the current directory
+# 全局：列出所有项目里 AI 问过的所有问题（默认最近 50 条）
+aifd ai question list
+
+# 限定当前目录
+aifd ai question list --cwd
+
+# 全部历史，不分页
+aifd ai question list --all
+
+# 指定显示条数
+aifd ai question list --limit 100
+```
+
+#### 在浏览器里看（推荐 — v0.3.1）
+
+终端 Table 对长 question 文本不友好（实测 67% 问题 > 200 字符，最长 1673 字符），看不全。`--open` 一个 flag 直接弹浏览器：
+
+```bash
+# 最简形式：写入 temp 文件 + 自动开浏览器（推荐日常使用）
+aifd ai question list --cwd --open
+
+# 看全部历史
+aifd ai question list --all --open
+
+# 持久化到指定文件（不开浏览器）
+aifd ai question list --cwd --output decisions.html
+
+# 持久化 + 同时开浏览器
+aifd ai question list --cwd --output decisions.html --open
+```
+
+HTML 页面是 Notion / Linear 风格的阅读视图：每个 question 一张卡片、跟随系统主题、最大 70ch 宽度、绿色 `✓` 标你选的、灰色 `★` 标推荐的。所有用户文本经过 `html.escape()` 处理，历史里包含 `<script>` 字符串也不会 XSS。
+
+#### JSON 输出与管道
+
+```bash
+# JSON 输出（含完整 record：options / notes / tool_use_id / source_path）
+aifd ai question list --cwd --json | jq
+
+# 找出你反推荐的问题
+aifd ai question list --all --json | \
+  jq '.[] | select(.recommended_option != null and (.chosen_option | contains(.recommended_option) | not)) | .question'
+
+# 统计跨项目偏好（pipe 到 jq 做聚合）
+aifd ai question list --all --json | jq 'group_by(.cwd) | map({cwd: .[0].cwd, count: length})'
+
+# pipe HTML 到自己的 static server
+aifd ai question list --all --html > public/decisions.html
+```
+
+#### 其他过滤 flag
+
+```bash
+# 只看 Claude（目前 Codex 返回空 —— 见下方"工具支持"）
+aifd ai question list --provider claude
+
+# verbose 日志（看到提取细节）
+aifd ai question list --cwd -v
+```
+
+#### 表头含义
+
+| 列 | 含义 |
+|---|---|
+| **Time** | 问题被问出的相对时间 |
+| **Project** | 问题所在 cwd 的目录名 |
+| **Question** | 问题文本（Table 模式会截断；用 `--open` 或 `--json` 看完整） |
+| **Your Choice** | 你选的 option label。multiSelect 用 `, ` 分隔 |
+| **Recommended** | 模型推荐的 option（即标了 `(recommended)` / `(推荐)` 的那个） |
+
+底部 footer 显示：
+
+- `N questions in <scope>` — 总数和范围
+- `recommended hit rate: X% (M/N)` — 你跟推荐的比例（分母排除"无推荐"和"无答案"的）
+- `K unanswered` — 被中断 / session 被压缩没回答的（实测约 4%）
+
+#### Flag 互斥规则
+
+| Flag 组合 | 行为 |
+|---|---|
+| 不加任何输出 flag | rich Table（默认） |
+| `--json` | JSON 到 stdout |
+| `--html` | HTML 到 stdout（pipe 用） |
+| `--open` | HTML 写 temp 文件 + 开浏览器 |
+| `--output PATH` | HTML 写到 PATH（隐含 HTML 模式，不开浏览器） |
+| `--output PATH --open` | HTML 写到 PATH + 开浏览器 |
+| `--json` + 任一 HTML 模式 | 报错（互斥） |
+
+#### 工具支持
+
+只支持 Claude Code。Codex 的 `agent_message` 事件是自由文本，没有结构化的「问用户」事件——所以 `--provider codex` 总是返回空。要扩展到 Codex / brainstorm 这类纯文本提问需要启发式抽取，会引入 noise，所以 v0.3 路线选择**精度优先**。详细原因见 [docs/question-extraction.md](./docs/question-extraction.md) 和 [TODOS.md](./TODOS.md)。
+
+### `aifd ai session list` — 按目录列 session
+
+```bash
+# 列出当前目录所有 AI session
 aifd ai session list
 
-# JSON output, pipe-friendly
+# JSON 输出
 aifd ai session list --json | jq '.[] | .session_id'
 
-# filter by provider
+# 按 provider 过滤
 aifd ai session list --provider claude
 aifd ai session list --provider codex
 ```
 
-The match is **exact** by default: shows sessions whose recorded cwd equals
-the current directory. Recursive scanning (`-r`) is on the roadmap.
+默认**精确匹配**当前目录。递归扫描（`-r`）在 roadmap 上。
 
-### `aifd ai skill list` — cross-tool skill usage stats (v0.2)
+### `aifd ai skill list` — 跨工具 skill 使用统计
 
 ```bash
-# global skill usage across every Claude project + every Codex thread
+# 全局 skill 使用情况（所有 Claude 项目 + 所有 Codex thread）
 aifd ai skill list
 
-# limit to the current project
+# 限定当前项目
 aifd ai skill list --cwd
 
-# JSON for piping into jq / fzf / your scripts
+# JSON 输出
 aifd ai skill list --json | jq '.[] | select(.total > 5)'
 
-# only one provider
+# 按 provider 过滤
 aifd ai skill list --provider claude
 ```
 
-Output columns:
-- **Claude / Codex / Total** — how many times you invoked this skill in each tool
-- **Last Used** — relative time of the most recent invocation
-- **Projects** — how many *distinct* directories you've used this skill in (high
-  = cross-project work flow; low = focused on one project)
+| 列 | 含义 |
+|---|---|
+| **Claude / Codex / Total** | 各工具调用次数 + 合计 |
+| **Last Used** | 最近一次调用的相对时间 |
+| **Projects** | 这个 skill 被用过的**不同**目录数（高 = 跨项目通用工具；低 = 单项目专用）|
 
-Default scope is **global** because a single project usually has only a handful
-of skill calls — the cross-project pattern is the interesting data. Use `--cwd`
-when you want "what skills did I use building *this* project."
+默认**全局**——单项目 skill 调用通常不多，跨项目 pattern 才有意思。要看「我建这个项目用了哪些 skill」加 `--cwd`。
 
-Skill names are normalized across providers: Claude's `/gstack-office-hours`
-and Codex's `[$office-hours]` both aggregate as `office-hours`.
+跨 provider 命名归一：Claude 的 `/gstack-office-hours` 和 Codex 的 `[$office-hours]` 都聚合成 `office-hours`。
 
-### `aifd ai claude skill list` / `aifd ai codex skill list` — installed skills
+### `aifd ai claude skill list` / `aifd ai codex skill list` — 列出已装 skill
 
 ```bash
-# what skills are installed for Claude Code
+# 当前 Claude Code 装了哪些 skill
 aifd ai claude skill list
 
-# what skills are installed for Codex
+# Codex 的同样查询
 aifd ai codex skill list
 
-# JSON for filtering / scripting
+# JSON 过滤
 aifd ai claude skill list --json | jq '.[] | select(.source == "plugin")'
 aifd ai codex skill list --json | jq '.[] | select(.source == "system") | .name'
 ```
 
-Output columns: **Skill / Source / Description / Version / Plugin**.
+列：**Skill / Source / Description / Version / Plugin**。
 
-Sources distinguish where the skill came from:
-- **user** — installed by you (`~/.claude/skills/...` or `~/.codex/skills/...`)
-- **plugin** — pulled in via a marketplace plugin (Claude only)
-- **system** — shipped by the tool itself (Codex `.system/` built-ins)
+Source 区分 skill 来源：
 
-Same-name skills from different sources show as two rows — by design, so you
-see exactly what's installed where.
+| Source | 含义 |
+|---|---|
+| **user** | 你自己安装的（`~/.claude/skills/...` 或 `~/.codex/skills/...`） |
+| **plugin** | 通过 marketplace 装的（只有 Claude）|
+| **system** | 工具自带（Codex `.system/` 内置）|
 
-### Common flags
+同名 skill 从不同 source 来会显示成两行——故意的，让你看清装在哪。
+
+### 通用 flag
 
 ```bash
 aifd --version
-aifd ai session list -v     # INFO logging
-aifd ai session list -vv    # DEBUG logging
+aifd ai session list -v     # INFO 日志
+aifd ai session list -vv    # DEBUG 日志
 ```
 
-## What's supported
+## 当前支持矩阵
 
-| Tool         | MVP (v0.1) | Notes |
-|--------------|------------|-------|
-| Claude Code  | ✅          | Reads `~/.claude/projects/{encoded-cwd}/*.jsonl` |
-| Codex        | ✅          | Reads `~/.codex/sessions/` and `~/.codex/archived_sessions/` |
-| Cursor       | ⏳ v0.2     | Needs SQLite + workspace-hash reverse lookup (see [TODOS.md](./TODOS.md)) |
+| 工具 | 状态 | 说明 |
+|---|---|---|
+| Claude Code | ✅ | 读 `~/.claude/projects/{encoded-cwd}/*.jsonl` |
+| Codex | ✅ | 读 `~/.codex/state_5.sqlite` + `~/.codex/sessions/` 兜底 |
+| Cursor | ⏳ v0.4+ | 需要 SQLite + workspace-hash 反查（见 [TODOS.md](./TODOS.md)）|
 
-## Architecture
+## 架构
 
-Each AI tool has its own adapter under `aifd/providers/`. Adding a new provider is
-one file + one line in `aifd/providers/registry.py`. The CLI is organized in three
-layers (`aifd ai session list`) to leave room for `session show`, `session resume`,
-`ai prompt`, and other future commands.
+每个 AI 工具一个 adapter 放在 `aifd/providers/` 下。新增 provider = 一个文件 + 一行注册。CLI 分三层（`aifd ai session list`）给未来 `session show` / `session resume` / `ai prompt` 等命令留空间。
 
 ```text
 aifd/
 ├── cli/
-│   ├── _logging.py          # Shared logging setup for all CLI commands
+│   ├── _logging.py          # 所有 CLI 命令共享的日志配置
+│   ├── _runner.py           # 共享的 provider-query 框架（v0.3）
 │   └── ai/
-│       ├── session.py       # `aifd ai session list`
-│       ├── skill.py         # `aifd ai skill list` (cross-tool usage stats, v0.2)
-│       ├── claude/skill.py  # `aifd ai claude skill list` (installed skills, v0.2.1)
-│       └── codex/skill.py   # `aifd ai codex skill list` (installed skills, v0.2.1)
+│       ├── session.py       # aifd ai session list
+│       ├── skill.py         # aifd ai skill list（v0.2）
+│       ├── question.py      # aifd ai question list（v0.3 + HTML v0.3.1）
+│       ├── claude/skill.py  # aifd ai claude skill list（v0.2.1）
+│       └── codex/skill.py   # aifd ai codex skill list（v0.2.1）
 ├── providers/
-│   ├── base.py              # Provider Protocol every adapter must implement
-│   ├── _utils.py            # Shared regex, normalization, frontmatter parser
+│   ├── base.py              # Provider Protocol，新 provider 必须实现
+│   ├── _utils.py            # 共享正则 / 命名归一 / frontmatter 解析
 │   ├── claude.py            # Claude Code adapter
 │   ├── codex.py             # Codex adapter
-│   └── registry.py          # Where you'd add a new provider
-├── aggregation.py           # Per-skill stat reduction (v0.2)
-├── models.py                # Session + SkillInvocation + SkillStats + InstalledSkill
-├── paths.py                 # cwd normalization
-└── render.py                # rich Table + JSON output
+│   └── registry.py          # 注册新 provider 的地方
+├── aggregation.py           # skill 统计聚合（v0.2）
+├── models.py                # Session / SkillInvocation / SkillStats / InstalledSkill / QuestionAnswer
+├── paths.py                 # cwd 归一化
+└── render.py                # rich Table / JSON / HTML 渲染
 ```
 
-## Contributing a provider
+## 贡献一个新 provider
 
-1. Add `aifd/providers/yourtool.py` implementing the `Provider` Protocol from `aifd/providers/base.py`.
-2. Append your provider instance to `PROVIDERS` in `aifd/providers/registry.py`.
-3. Add fixtures under `tests/fixtures/yourtool/` and a `test_yourtool_provider.py`.
-4. Make sure `uv run pytest`, `uv run ruff check aifd/ tests/`, and `uv run mypy aifd/` all pass.
+1. 新建 `aifd/providers/yourtool.py`，实现 `aifd/providers/base.py` 里的 `Provider` Protocol。
+2. 把你的 provider 实例追加到 `aifd/providers/registry.py` 的 `PROVIDERS` 列表。
+3. 在 `tests/fixtures/yourtool/` 下加 fixture，写 `test_yourtool_provider.py`。
+4. 确认 `uv run pytest`、`uv run ruff check aifd/ tests/`、`uv run mypy aifd/` 全过。
 
-Single-file parse errors must be silently skipped (logged at `warning` or `debug`),
-never raised — one bad file must not break the listing.
+**单文件解析错误必须 silent skip**（log 在 `warning` 或 `debug` 级别），永远不能 raise——一个坏文件不能让整个列表挂掉。
 
-## Development
+## 开发
 
 ```bash
 git clone https://github.com/xunull/aifd
