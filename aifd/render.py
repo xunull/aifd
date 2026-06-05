@@ -1366,3 +1366,184 @@ def _relative_time(dt: datetime) -> str:
         return f"{months}mo ago"
     years = days // 365
     return f"{years}y ago"
+
+
+# ---------- Activity report (v0.5: aifd ai today / weekly / monthly / retro) ----------
+
+# Avoid a top-of-file import cycle: render.py is the renderer for many
+# subsystems and insights.py imports providers; deferring the import to
+# the function body keeps module load order simple.
+
+_PERIOD_LABEL: dict[str, str] = {
+    "today": "Today",
+    "weekly": "Past 7 days",
+    "monthly": "This month",
+    "custom": "Custom range",
+}
+
+
+def render_activity_report(
+    report: object,
+    *,
+    delta: object | None = None,
+    projection: object | None = None,
+    period_label: str = "custom",
+    as_json: bool = False,
+) -> None:
+    """Render a `summarize_activity` ActivityReport to stdout.
+
+    JSON mode emits a stable schema (also documented in docs/ai-retro.md)
+    that future tooling (MCP server, scripts) can rely on.
+    """
+    from aifd.insights import ActivityReport as _AR
+    from aifd.insights import Delta as _Delta
+    from aifd.insights import ProjectionEstimate as _Proj
+
+    if not isinstance(report, _AR):
+        raise TypeError(f"render_activity_report expects ActivityReport, got {type(report)}")
+    typed_delta = delta if isinstance(delta, _Delta) else None
+    typed_proj = projection if isinstance(projection, _Proj) else None
+
+    if as_json:
+        json.dump(
+            activity_report_as_dict(report, delta=typed_delta, projection=typed_proj),
+            sys.stdout,
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
+        sys.stdout.write("\n")
+        return
+
+    console = Console()
+    header = _PERIOD_LABEL.get(period_label, "Custom range")
+    period_str = (
+        f"{report.period_start.strftime('%Y-%m-%d %H:%M')} → "
+        f"{report.period_end.strftime('%Y-%m-%d %H:%M')}"
+    )
+    console.print(f"[bold cyan]═══ {header} ═══[/] [dim]{period_str}[/dim]")
+    console.print()
+
+    if report.session_count == 0 and report.cost_usd == 0:
+        console.print("[dim]No AI activity in this window.[/dim]")
+        return
+
+    # Headline numbers
+    cost_color = (
+        "red" if report.cost_usd >= 5
+        else "yellow" if report.cost_usd >= 1
+        else "white"
+    )
+    console.print(
+        f"  [bold]{report.session_count}[/] sessions · "
+        f"[bold {cost_color}]${report.cost_usd:,.2f}[/] · "
+        f"[dim]{report.total_tokens:,} tokens[/dim]"
+    )
+
+    # Provider split
+    if report.by_provider:
+        parts = []
+        for pa in report.by_provider:
+            parts.append(f"{pa.provider} {pa.sessions} sess · ${pa.cost_usd:,.2f}")
+        console.print(f"  [dim]{' · '.join(parts)}[/dim]")
+
+    # Top skills
+    if report.top_skills:
+        skills_str = " · ".join(
+            f"[green]{name}[/] x{count}" for name, count in report.top_skills
+        )
+        console.print(f"  [dim]top skills:[/] {skills_str}")
+
+    # Top topics
+    if report.top_topics:
+        console.print("  [dim]top topics:[/]")
+        for topic, count in report.top_topics:
+            label = topic[:64] + ("…" if len(topic) > 64 else "")
+            multi = f" x{count}" if count > 1 else ""
+            console.print(f"    · {label}{multi}")
+
+    # Comparison + projection
+    if typed_delta is not None or typed_proj is not None:
+        console.print()
+    if typed_delta is not None:
+        if typed_delta.has_prior:
+            cost_sign = "+" if typed_delta.cost_delta >= 0 else ""
+            sess_sign = "+" if typed_delta.session_delta >= 0 else ""
+            console.print(
+                f"  [dim]vs previous:[/] "
+                f"[bold]{cost_sign}${typed_delta.cost_delta:,.2f}[/] cost · "
+                f"[bold]{sess_sign}{typed_delta.session_delta}[/] sessions"
+            )
+        else:
+            console.print("  [dim]vs previous: no prior data[/dim]")
+    if typed_proj is not None:
+        if typed_proj.enough_data:
+            console.print(
+                f"  [dim]→ at this pace, monthly projection:[/] "
+                f"[bold]${typed_proj.monthly_usd:,.2f}[/] "
+                f"[dim](based on {typed_proj.hours_elapsed:.1f}h)[/dim]"
+            )
+        else:
+            console.print(
+                "  [dim]→ projection: (too early, <1h of data)[/dim]"
+            )
+
+
+def activity_report_as_dict(
+    report: object,
+    *,
+    delta: object | None = None,
+    projection: object | None = None,
+) -> dict[str, object]:
+    """Serialize ActivityReport (+ optional Delta / Projection) to plain dict.
+
+    Schema is stable across versions; downstream consumers (jq, MCP server
+    in future) can rely on key names. Datetimes serialize to ISO 8601.
+    """
+    from aifd.insights import ActivityReport as _AR
+    from aifd.insights import Delta as _Delta
+    from aifd.insights import ProjectionEstimate as _Proj
+
+    if not isinstance(report, _AR):
+        raise TypeError(
+            f"activity_report_as_dict expects ActivityReport, got {type(report)}"
+        )
+
+    payload: dict[str, object] = {
+        "period_start": report.period_start.isoformat(),
+        "period_end": report.period_end.isoformat(),
+        "session_count": report.session_count,
+        "cost_usd": round(report.cost_usd, 4),
+        "total_tokens": report.total_tokens,
+        "by_provider": [
+            {
+                "provider": pa.provider,
+                "sessions": pa.sessions,
+                "cost_usd": round(pa.cost_usd, 4),
+                "total_tokens": pa.total_tokens,
+            }
+            for pa in report.by_provider
+        ],
+        "top_skills": [
+            {"skill": name, "count": count}
+            for name, count in report.top_skills
+        ],
+        "top_topics": [
+            {"topic": topic, "count": count}
+            for topic, count in report.top_topics
+        ],
+    }
+    if isinstance(delta, _Delta):
+        payload["delta"] = {
+            "has_prior": delta.has_prior,
+            "cost_delta": round(delta.cost_delta, 4),
+            "session_delta": delta.session_delta,
+            "token_delta": delta.token_delta,
+        }
+    if isinstance(projection, _Proj):
+        payload["projection"] = {
+            "enough_data": projection.enough_data,
+            "monthly_usd": round(projection.monthly_usd, 4),
+            "hours_elapsed": round(projection.hours_elapsed, 2),
+        }
+    return payload

@@ -45,6 +45,26 @@ $ aifd ai skill list                  # 默认全局；--cwd 限定当前目录
 └─────────────────┴────────┴───────┴───────┴───────────┴──────────┘
 ```
 
+**4. 今天 / 本周 / 自定义区间的活动 retrospective（v0.5）**
+
+```text
+$ aifd ai today
+═══ Today ═══ 2026-06-05 00:00 → 2026-06-05 09:41
+
+  5 sessions · $80.30 · 85M tokens
+  claude 5 sess · $80.30
+  top skills: plan-eng-review x4 · ship x1
+  top topics:
+    · v0.4.1 vault scan UI/UX
+    · FP suppression discussion
+    · aifd ai today implementation
+
+  vs previous: -$443.80 cost · -3 sessions
+  → at this pace, monthly projection: $5,963.59 (based on 9.7h)
+```
+
+还有 `aifd ai weekly` / `monthly` / `retro --since YYYY-MM-DD`，全部支持 `--json`。详见 `docs/ai-retro.md`。
+
 ## 安装
 
 ```bash

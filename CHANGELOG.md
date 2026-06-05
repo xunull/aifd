@@ -3,6 +3,94 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-06-05
+
+### Added
+
+#### `aifd ai today / weekly / monthly / retro` — activity retrospective
+
+Four new subcommands aggregate your AI activity over a time window and
+present session count, USD cost, token total, per-provider split, top
+skills, top topics (from `Session.title`), a delta vs the equivalent
+prior window, and a monthly cost projection extrapolated from the
+current run rate.
+
+- `aifd ai today` — local midnight to now
+- `aifd ai weekly` — rolling 7 days
+- `aifd ai monthly` — first of month to now
+- `aifd ai retro --since YYYY-MM-DD [--until YYYY-MM-DD]` — custom range
+
+All four support `--json` (stable schema documented in `docs/ai-retro.md`)
+and `-v` / `-vv` log verbosity. The JSON shape is designed to be the
+return schema for a future `aifd mcp serve` MCP tool so Claude can query
+your own AI history as part of its context.
+
+Sample output:
+
+```
+═══ Today ═══ 2026-06-05 00:00 → 2026-06-05 09:41
+
+  5 sessions · $80.30 · 85M tokens
+  claude 5 sess · $80.30
+  top skills: plan-eng-review x4 · ship x1
+  top topics:
+    · v0.4.1 vault scan UI/UX
+    · FP suppression discussion
+
+  vs previous: -$443.80 cost · -3 sessions
+  → at this pace, monthly projection: $5,963.59 (based on 9.7h)
+```
+
+Session semantics: "session_count" counts DISTINCT `(provider, session_id)`
+that emitted any TokenUsage event in the window. A conversation started
+yesterday but continued today counts as today's activity — matches user
+intuition over "new sessions started today" (which would show 0 sessions
++ $50 cost on a long-running follow-up day).
+
+#### Provider Protocol: `iter_all_sessions()`
+
+Added to `aifd.providers.base.Provider` (Claude + Codex implement, default
+returns empty for other providers). Lets callers walk every session a
+provider knows about regardless of cwd — required by `aifd ai retro` and
+unlocks future cross-tool dashboards / MCP tools without breaking the
+existing cwd-scoped `list_sessions(cwd)` contract.
+
+Codex uses a `SELECT * FROM threads ORDER BY created_at_ms DESC` (no
+cwd filter) when the SQLite state DB is present; falls back to a jsonl
+walk otherwise.
+
+### Improved
+
+#### `aifd vault cost` event-cost helper now shared with insights
+
+`aifd.vault.cost.compute_event_cost` was previously private to the
+cost subcommand; it's now the single source of truth for "what does
+one TokenUsage event cost in USD?", consumed by both `aifd vault cost`
+and `aifd ai retro / today / ...`. DRY enforcement via
+`tests/test_insights.py`.
+
+### Documentation
+
+- `docs/ai-retro.md` — full command reference, session semantics, JSON
+  schema, performance notes, comparison to `aifd vault cost`
+- README — new "视角 4" section showing the `aifd ai today` output
+  alongside session / question / skill views
+
+### Performance
+
+- Today window: < 1s on 800 MB of jsonl
+- Weekly window: ~2.5s
+- Monthly window: ~9.5s (essentially full scan)
+
+### Internal
+
+- New module `aifd/insights.py` (270 lines): `ActivityReport`,
+  `Delta`, `ProjectionEstimate` frozen dataclasses; `summarize_activity`,
+  `compute_diff`, `compute_projection` pure functions; four window
+  helpers (today / weekly / monthly / previous_window)
+- 16 unit tests for insights + 4 CLI tests for retro
+- Existing tests untouched; full suite now 307 (was 287)
+
 ## [0.4.1] - 2026-06-04
 
 ### Added

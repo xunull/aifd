@@ -181,7 +181,72 @@ class CodexProvider:
             except OSError as exc:
                 logger.warning("Cannot walk Codex %s: %s", base, exc)
 
-    def _parse_rollout_file(self, path: Path, target: Path) -> Session | None:
+    def iter_all_sessions(self) -> Iterator[Session]:
+        """Yield every Session, regardless of cwd. Used by `aifd ai retro`.
+
+        Tries SQLite first (fast, no row WHERE cwd filter). Falls back to
+        a jsonl scan with `target=None`. Same dedupe semantics as the
+        cwd-scoped path — `session_id` is the de-dupe key.
+        """
+        db_path = self._find_state_db()
+        seen_ids: set[str] = set()
+        if db_path is not None:
+            try:
+                for s in self._query_sqlite_all(db_path):
+                    if s.session_id in seen_ids:
+                        continue
+                    seen_ids.add(s.session_id)
+                    yield s
+                return
+            except sqlite3.Error as exc:
+                logger.warning("Codex global SQLite query failed: %s", exc)
+                # Fall through to jsonl scan
+        for rollout in self._all_rollout_files():
+            parsed = self._parse_rollout_file(rollout, target=None)
+            if parsed is None or parsed.session_id in seen_ids:
+                continue
+            seen_ids.add(parsed.session_id)
+            yield parsed
+
+    def _query_sqlite_all(self, db_path: Path) -> Iterator[Session]:
+        """Same as `_query_sqlite` but without the `WHERE cwd = ?` clause."""
+        uri = f"file:{db_path}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, rollout_path, cwd, title, first_user_message,
+                       created_at_ms, archived, preview
+                FROM threads
+                ORDER BY created_at_ms DESC, id DESC
+                """,
+            ).fetchall()
+        finally:
+            conn.close()
+
+        for row in rows:
+            row_cwd_raw = row["cwd"]
+            session_cwd = Path(row_cwd_raw) if isinstance(row_cwd_raw, str) else Path()
+            title = _pick_title(row["title"], row["preview"], row["first_user_message"])
+            started_at = _ms_to_dt(row["created_at_ms"])
+            rollout = row["rollout_path"]
+            source_path = (
+                Path(rollout) if isinstance(rollout, str) and rollout else db_path
+            )
+            yield Session(
+                provider=self.name,
+                session_id=row["id"] if isinstance(row["id"], str) else "",
+                cwd=session_cwd,
+                started_at=started_at,
+                event_count=0,
+                source_path=source_path,
+                title=title,
+            )
+
+    def _parse_rollout_file(
+        self, path: Path, target: Path | None
+    ) -> Session | None:
         try:
             f = path.open("r", encoding="utf-8")
         except OSError as exc:
@@ -240,7 +305,7 @@ class CodexProvider:
             return None
 
         session_cwd = Path(raw_cwd)
-        if not cwd_equal(normalize_cwd(session_cwd), target):
+        if target is not None and not cwd_equal(normalize_cwd(session_cwd), target):
             return None
 
         session_id = payload.get("id")

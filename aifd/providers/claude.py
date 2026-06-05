@@ -129,8 +129,32 @@ class ClaudeProvider:
         except OSError as exc:
             logger.warning("Cannot list Claude project dir %s: %s", project_dir, exc)
 
-    def _parse_file(self, jsonl_path: Path, target: Path) -> Iterator[Session]:
+    def iter_all_sessions(self) -> Iterator[Session]:
+        """Yield every Session across every project_dir, regardless of cwd.
+
+        Used by `aifd ai retro` (v0.5) which needs a global activity view
+        instead of the cwd-scoped `list_sessions(cwd)`. Reuses the same
+        `_parse_file` parser with `target=None` to skip the cwd filter.
+        """
+        if not self.root.is_dir():
+            return
+        try:
+            for project_dir in self.root.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                for jsonl_path in self._jsonl_files(project_dir):
+                    yield from self._parse_file(jsonl_path, target=None)
+        except OSError as exc:
+            logger.warning("Cannot walk Claude projects root %s: %s", self.root, exc)
+
+    def _parse_file(
+        self, jsonl_path: Path, target: Path | None
+    ) -> Iterator[Session]:
         """Phase 2: read jsonl, find authoritative cwd, build Session if it matches.
+
+        `target=None` skips the cwd filter — used by `iter_all_sessions`
+        for the global retro view. `target=Path` keeps the v0.2 behavior
+        where only sessions whose cwd equals the target are emitted.
 
         Also harvests title:
         - Preferred: `ai-title` event's `aiTitle` field (Claude Code auto-summary).
@@ -190,7 +214,7 @@ class ClaudeProvider:
         if first_cwd is None:
             return
 
-        if not cwd_equal(normalize_cwd(first_cwd), target):
+        if target is not None and not cwd_equal(normalize_cwd(first_cwd), target):
             return
 
         title = ai_title or fallback_user_text
