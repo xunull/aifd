@@ -65,6 +65,51 @@ $ aifd ai today
 
 还有 `aifd ai weekly` / `monthly` / `retro --since YYYY-MM-DD`，全部支持 `--json`。详见 `docs/ai-retro.md`。
 
+**5. 实时盯 secret 泄露（v0.6）**
+
+```text
+$ aifd vault watch install            # 一次性：注册 launchd，开机自启
+Installed /Users/quincy/Library/LaunchAgents/io.aifd.watch.plist
+Daemon will start at next login (and now via KeepAlive).
+
+$ aifd vault watch status
+aifd vault watch · RUNNING
+  pid          84231
+  server       http://127.0.0.1:54791/
+  state file   /Users/quincy/.aifd/watch-state.json
+  log file     /Users/quincy/.aifd/watch.log
+  catches      0 total, 0 today
+  tracking     38 jsonl file(s)
+```
+
+后台 daemon 实时盯 Claude / Codex 的 session jsonl —— 新行一落地立刻扫 secret，发现了推 macOS 通知。点通知打开本地 `127.0.0.1` 页面，把泄漏的 secret 高亮显示在对话上下文里。详见 `docs/vault-watch.md`。
+
+**6. 持久化事件流 + 接外部报警（v0.7）**
+
+```text
+$ aifd vault watch events list
+208 finding(s) total, showing 50
+STATUS  CAT          SNIPPET        COUNT  LAST SEEN            FINGERPRINT
+new     openai_key   sk-J…oNwP          3  2026-06-05T17:01    abc123def456…
+new     github_pat   ghp_…ejyW          1  2026-06-05T17:02    7e8a9b0c1d2e…
+...
+
+$ aifd vault watch webhooks add --url https://hooks.slack.com/services/T/B/X \
+    --on new_finding --category openai_key --category github_pat
+$ aifd vault watch webhooks test webhook-12345  # 验证连通
+$ aifd vault watch webhooks enable webhook-12345
+```
+
+v0.7 把每条 finding 从内存里的瞬时通知升级到 SQLite 持久化事件流：
+
+- **历史查询** —— `aifd vault watch events list/show` + 浏览器 web UI
+- **状态机** —— new / acknowledged / resolved / muted（24h 或永久）
+- **webhook 出口** —— POST JSON 到 Slack / PagerDuty / Datadog / 自家系统
+- **Rotation playbook** —— 每条 finding 附带"去哪 rotate"的 vendor dashboard 链接 + 步骤（en + zh）
+- **同一 secret 跨文件 = 同一 issue** —— fingerprint 按 category + redacted snippet 哈希，count++
+
+详见 `docs/vault-events.md`。
+
 ## 安装
 
 ```bash
@@ -283,6 +328,59 @@ aifd vault cost --list-models
 | **Model** | 单一 model 显原名；多 model 显 `mixed (N)` |
 
 未知 model（不在价格表里）会显示 token 数但 cost = $0，方便你发现需要 update 表。
+
+### `aifd vault watch` — 实时 secret 检测 daemon（v0.6）
+
+`vault scan` 是事后查；`vault watch` 是事前防 —— 常驻 daemon 盯每个 Claude / Codex 的 session jsonl，新行一落地立刻跑同一套检测，发现真 secret 推 macOS 通知。点通知打开 `127.0.0.1` 的页面，secret 在对话上下文里被高亮。
+
+**典型工作流（macOS）：**
+
+```bash
+# 1. 一次性安装：注册 launchd .plist，开机自启
+aifd vault watch install
+
+# 2. 看状态（pid / 端口 / 今天捕获了多少 / 跟踪了多少 jsonl）
+aifd vault watch status
+aifd vault watch status --json     # 给脚本用
+
+# 3. 看实时 log
+aifd vault watch tail
+
+# 4. 调试时前台跑（Ctrl-C 退出，stdout 直接看到 log）
+aifd vault watch start --foreground -vv
+
+# 5. 临时停 daemon
+aifd vault watch stop
+
+# 6. 完全卸载（停 daemon + 删 .plist）
+aifd vault watch uninstall
+```
+
+**强烈建议**先装 `terminal-notifier`：
+
+```bash
+brew install terminal-notifier
+```
+
+不装会 fallback 到 `osascript`，**点击通知会打开 macOS 自带的「脚本编辑器」**而不是浏览器跳到 finding URL —— 这是 `osascript display notification` AppleScript 命令的已知限制（不支持自定义点击回调）。`aifd vault watch status` 会显示当前用的是哪个 backend。
+
+**首次运行**：daemon 启动后会发一条测试通知「Watch daemon started — notifications working.」。**如果没看到**，去系统设置 → 通知 → Terminal / terminal-notifier 里允许，然后 `aifd vault watch stop && aifd vault watch start`。
+
+**与 `aifd ai today` 联动**：daemon 捕到的 secret 数会在每日 / 每周 / 每月活动报告底部多一行：
+
+```text
+🛡 vault watch: 3 secrets caught this period (run `aifd vault watch status` for details)
+```
+
+**安全 invariant**（详见 `docs/secret-scan.md`）：
+
+- HTTP server 只绑 `127.0.0.1`（不是 `0.0.0.0`）—— LAN 上其它机器永远碰不到
+- 通知 URL 里的 token 是 `secrets.token_urlsafe(32)`（~256 bit 不可猜）
+- `~/.aifd/watch-state.json` 只存 `category` + redacted snippet，完整 secret 永不落盘
+- state file 用 `tmp + rename` 原子写 —— SIGKILL 半途也不会留半截 JSON
+- `fcntl.flock` 防止两个 daemon 同时跑
+
+**Linux**：`install` 子命令是 macOS-only（launchd）。Linux 用 `systemctl --user` 跑 `aifd vault watch daemon`，参考 `docs/vault-watch.md` 里的 `.service` 模板。
 
 ### `aifd ai claude skill list` / `aifd ai codex skill list` — 列出已装 skill
 

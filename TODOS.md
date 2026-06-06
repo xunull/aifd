@@ -204,3 +204,22 @@
 **Cons**：要把 suppressed match 保留到最终输出阶段（额外内存）；HTML / JSON 也需要承载这个 section。
 **Context**：scan.py 现在 suppressed match 直接 `continue` 丢弃；要改成 yield 出 `(SensitiveMatch, suppressor_name)` 元组，render 层负责选择是否显示。
 **Depends on / blocked by**：建议与 `--exclude` 一起做（两者形成 calibration 闭环）。
+
+## v0.7.x 后续 (eng review 输出)
+
+### `aifd vault watch webhooks digest` 周期汇总 webhook
+**What**：cron-like digest（daily / weekly），不是 per-event 触发，而是周期汇总。webhook config 加 `on: [digest]` + `schedule: daily|weekly|cron-expr` 字段。
+**Why**：让"我不想被每条 finding 点亮但想要总结"类用户能用。降低 noise 又保持可观测。
+**Pros**：低噪审；适合周末 batch 复查的 user。
+**Cons**：需要 BackgroundScheduler 或 APScheduler；aifd 当前没 cron-like 机制；retention 默认要调。
+**Context**：design doc `quincy-main-design-20260605-211630.md` 提了 daily/weekly digest 作为 Approach B' 的一部分但被 eng review D7 推后。装实现需要 scheduler 线程或定时唤醒 sweeper。
+**Depends on / blocked by**：v0.7 events DB ship。
+
+### `aifd vault watch events vacuum` retention policy
+**What**：自动删除 N 天前的 resolved findings，防止 events DB 无限增长。先做 CLI 手动版本，再加 sweeper 自动。
+**Why**：personal use 三年后 DB 可能恶胀。手动 `vacuum --before YYYY-MM-DD` 让 user 清理可控。
+**Pros**：防止 DB 老化；CLI 体验清晰。
+**Cons**：sweeper 加一个 job；retention 默认期限要调参；resolved → vacuum 之间 user 可能想回看历史。
+**Context**：design doc 没提 retention。eng review 中发现这是 omission。建议 v0.7.1 加 CLI 手动 vacuum，v0.8 加 sweeper 自动。
+**Depends on / blocked by**：v0.7 events DB ship。
+

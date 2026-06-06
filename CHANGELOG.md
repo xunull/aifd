@@ -3,6 +3,206 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-06-05
+
+### Added
+
+#### `aifd vault watch events` — persistent finding event stream
+
+v0.6 把 vault watch 的检测做到了实时；v0.7 把单条 finding 从「内存里的瞬时
+通知」升级成「持久化事件流 + web 查询 + 接外部报警系统」。详见
+`docs/vault-events.md`。
+
+**核心变化**：
+
+- **SQLite events store** (`~/.aifd/findings.db`, WAL mode) — daemon 重启不
+  丢；同一 secret 重复出现按 fingerprint 去重（count++），不创建新 issue
+- **fingerprint = SHA1(category + snippet_redacted)** — 跨机器、跨用户名稳定；
+  同一 secret 在多个文件出现 = 一个 issue，多条 occurrence
+- **状态机** — new / acknowledged / resolved / muted；resolved 后再次出现自动
+  re-open；muted 可带 `--hours N` 或永久
+- **rotation playbook 库** — 8 个核心 category（openai_key / anthropic_key /
+  github_pat / github_oauth / aws_access_key / aws_secret / slack_token / jwt /
+  gcp_service_account）+ generic fallback；en + zh 双语；vendor dashboard 链接
+  + 步骤说明
+
+**新 CLI**：
+
+```bash
+aifd vault watch events list  [--status STATUS --category CAT --limit N --offset N --json]
+aifd vault watch events show  <fingerprint>
+aifd vault watch events ack   <fingerprint>
+aifd vault watch events mute  <fingerprint> [--hours N]
+aifd vault watch events resolve <fingerprint>
+aifd vault watch events export --format ndjson
+```
+
+#### `aifd vault watch webhooks` — outbound integration with外部报警系统
+
+通用 webhook 出口，接 Slack / PagerDuty / Datadog / Honeycomb / 自家 monitoring：
+
+```bash
+aifd vault watch webhooks add --url URL --on new_finding [--category CAT ...]
+aifd vault watch webhooks test <id>      # 必须 test 通才能 enable
+aifd vault watch webhooks enable <id>    # 默认 disabled，避免错配泄漏 (D3)
+aifd vault watch webhooks list / delete / disable / list-dead-letter / retry-dead-letter
+```
+
+**Payload formats**：
+
+- `aifd_v1` (default) — generic flat JSON，含 fingerprint / category / 文件
+  basename + line / first_seen + count / rotation playbook（vendor_dashboard +
+  instruction + severity）
+- `pagerduty_v2` — PagerDuty Events API v2 shape（URL 里 `?routing_key=X` 自动
+  挪到 body）
+
+**Delivery 工程**：
+
+- 独立 webhook deliverer 线程（per-thread events DB connection）
+- 3 次 exponential backoff retry（10s / 60s / 600s）
+- 4xx 直接 dead_letter（不重试 —— URL 错配类）
+- 5xx + 网络错误重试（transient 错误类）
+- dead_letter 持久化到 SQLite，跨重启**不自动**重试（D4 — 避免「错配修了还会
+  连发」陷阱）；用户用 `webhooks retry-dead-letter` 手动 re-queue
+
+#### Web UI — 单页 SPA at `http://127.0.0.1:PORT/`
+
+vanilla JS，零 build step。三个视图：
+
+- **Findings**（list view）— 按 status / category 过滤、按 last_seen DESC 排
+  序、分页（LIMIT 50）；click 进 detail
+- **Detail** — status mutation 按钮（Ack / Mute 24h / Mute forever / Resolve）+
+  rotation playbook block（醒目卡片，vendor link + 步骤）+ occurrences timeline
+- **Webhooks** — list 现有 + add form + per-row Test / Enable / Disable /
+  Delete
+
+浏览器 `navigator.language` 决定 playbook 显示 en 还是 zh。
+
+#### Architecture locks (v0.7)
+
+- **D1**：per-thread SQLite connection + WAL 模式 —— reader 不阻 writer
+- **D2**：fingerprint 不含 file path —— 跨机稳定、webhook payload 只发 basename
+- **D3**：webhook 默认 disabled —— privacy-by-default 防错配
+- **D4**：dead_letter 不自动重试 —— user 明确同意才 re-queue
+- **D5**：web UI 无 Playwright 依赖 —— release-time 手动 QA checklist
+- **D6**：LIMIT 50 + 3 indices（status+last_seen DESC, category, fingerprint）
+
+#### E10 cross-feature surface 保留
+
+`aifd ai today / weekly / monthly` 的 `🛡 vault watch: N` 一行仍然来自
+`state.catches_by_day` (v0.6)，与新 events DB 并存 —— state.json 管 day
+counters + scan offset，events DB 管 finding history。
+
+#### T9: finding_drop_count metric
+
+events DB 写失败（disk full、SQLite error）会 +1 `finding_drop_count`，daemon
+不 crash；`aifd vault watch status` 显示 `⚠ N finding(s) dropped`。
+
+### Changed
+
+- **Notifier 警告策略升级**：v0.6.x 已经做过 osascript 警告，v0.7 加进 status 命令
+- `aifd vault watch stop/start` 在 launchd .plist 存在时自动用
+  `launchctl bootout`/`bootstrap`，避免 KeepAlive respawn 与 stop 竞态（v0.6.x fix
+  在 v0.7 整理进 docs）
+- `aifd/vault/scan.py:_scan_line` SEMI-PUBLIC marker docstring 加 v0.7 events DB
+  ingestion path 为新 caller
+
+### Dependencies
+
+- 新增 `pyyaml>=6.0` —— 解析 `~/.aifd/webhooks.yaml` 用户配置
+- 新增 `types-PyYAML>=6.0` (dev) —— mypy 类型补全
+
+### Tests
+
+107 个新测试：
+- `tests/test_vault_events_db.py` — 29 (WAL、fingerprint、state machine、并发)
+- `tests/test_vault_playbooks.py` — 31 (lookup、i18n、render、generic fallback)
+- `tests/test_vault_webhooks.py` — 22 (yaml load/save、retry/dead_letter、payload、
+  send_test_event)
+- `tests/test_vault_watch_server_events.py` — 25 (HTTP endpoints integration via real
+  127.0.0.1 server)
+- `tests/test_vault_watch_cli_events.py` — 22 (click CLI subcommands)
+- `tests/test_vault_watch_regression.py` — 8 (v0.6 click-to-jump + E10 invariants)
+
+总测试数：474 passed + 1 skipped。
+
+
+
+## [0.6.0] - 2026-06-05
+
+### Added
+
+#### `aifd vault watch` — real-time secret detection daemon
+
+Long-running background daemon that listens for new lines in every
+Claude / Codex jsonl. When a new line lands, runs the v0.4 detector
+pipeline (regex + entropy + suppressors) against it. If a real match
+survives the dedupe filter, pushes a macOS notification; clicking it
+opens a localhost page (127.0.0.1, kernel-picked port) that highlights
+the leak in its conversation context.
+
+Subcommands:
+
+- `aifd vault watch install` — one-time launchd setup (macOS only;
+  Linux uses `systemctl --user`, see `docs/vault-watch.md`).
+- `aifd vault watch start [--foreground]` — manually start (background
+  default; `--foreground` for debugging with Ctrl-C to stop).
+- `aifd vault watch stop` — graceful SIGTERM with 10s deadline.
+- `aifd vault watch status [--json]` — pid / port / counters / log path.
+- `aifd vault watch tail` — `tail -F ~/.aifd/watch.log`.
+- `aifd vault watch uninstall` — `launchctl bootout` + remove .plist.
+- `aifd vault watch daemon` — internal launchd entrypoint.
+
+Architecture (locked in `/gstack-plan-eng-review`):
+
+- **D1 — queue + single worker**: every state mutation (WatchState,
+  DedupeCache, counters) flows through one worker thread. No locks,
+  no shared-mutable-state races.
+- **D2 — daemon-hosted HTTP server**: one long-lived server bound to
+  127.0.0.1 on a kernel-picked port, findings registered against a
+  ~256-bit `secrets.token_urlsafe(32)` token. Process dies → server dies.
+- **D3 — 5-minute full-sweep timer**: runs in parallel with the
+  event-driven scan. Catches anything watchdog dropped (inotify queue
+  overflow, FSEvents coalescing under extreme load).
+
+Safety + privacy:
+
+- HTTP server binds 127.0.0.1 only (never 0.0.0.0).
+- Finding tokens are unguessable (~256 bits).
+- `~/.aifd/watch-state.json` only stores `category` + `snippet_redacted`
+  — never a full secret.
+- State file uses atomic write (tmp + rename) — SIGKILL mid-write does
+  not corrupt.
+- `fcntl.flock(LOCK_EX | LOCK_NB)` on `~/.aifd/watch.pid` enforces
+  single-instance: a second `daemon` invocation fails fast.
+- launchd `KeepAlive=true` survives crashes; SIGTERM flushes cleanly.
+
+E10 cross-feature surface: `aifd ai today / weekly / monthly` now shows
+a `🛡 vault watch: N secrets caught this period` line when the daemon
+has caught secrets in the same window. The line is hidden when watch
+has never run or when the window is empty. JSON output gains
+`"watch_catches": <int>`.
+
+New dependency: `watchdog>=4.0` (wraps macOS FSEvents / Linux inotify
+/ Windows ReadDirectoryChangesW). Picked over PyObjC (macOS-only) and
+rolling our own (re-inventing 10 years of edge-case fixes).
+
+Docs: `docs/vault-watch.md` (commands + architecture + troubleshooting),
+`docs/secret-scan.md § Watch mode security` (threat model + invariants).
+
+27 new tests in `tests/test_vault_watch.py` cover WatchState
+(load/save/atomic/version migration/window summing), TailReader
+(initial/append/rotate/partial trailing line), DedupeCache
+(first-hit/TTL/LRU cap), Notifier (osascript vs terminal-notifier
+dispatch), WatchServer (register/fetch/404/loopback-only/stop), and
+the E10 today integration.
+
+### Changed
+
+- `aifd/vault/scan.py:_scan_line` is now marked as a **semi-public API**
+  (called by both `vault scan` and `vault watch`). Its signature is
+  part of our internal contract; future MCP server will reuse it too.
+
 ## [0.5.0] - 2026-06-05
 
 ### Added
