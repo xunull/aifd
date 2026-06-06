@@ -1389,6 +1389,7 @@ def render_activity_report(
     projection: object | None = None,
     period_label: str = "custom",
     as_json: bool = False,
+    watch_catches: int | None = None,
 ) -> None:
     """Render a `summarize_activity` ActivityReport to stdout.
 
@@ -1405,12 +1406,13 @@ def render_activity_report(
     typed_proj = projection if isinstance(projection, _Proj) else None
 
     if as_json:
+        payload = activity_report_as_dict(
+            report, delta=typed_delta, projection=typed_proj,
+        )
+        if watch_catches is not None:
+            payload["watch_catches"] = watch_catches
         json.dump(
-            activity_report_as_dict(report, delta=typed_delta, projection=typed_proj),
-            sys.stdout,
-            indent=2,
-            ensure_ascii=False,
-            default=str,
+            payload, sys.stdout, indent=2, ensure_ascii=False, default=str,
         )
         sys.stdout.write("\n")
         return
@@ -1487,6 +1489,15 @@ def render_activity_report(
             console.print(
                 "  [dim]→ projection: (too early, <1h of data)[/dim]"
             )
+
+    if watch_catches is not None and watch_catches > 0:
+        plural = "" if watch_catches == 1 else "s"
+        console.print()
+        console.print(
+            f"  [bold yellow]🛡 vault watch:[/] "
+            f"[bold]{watch_catches}[/] secret{plural} caught this period "
+            f"[dim](run `aifd vault watch status` for details)[/dim]"
+        )
 
 
 def activity_report_as_dict(

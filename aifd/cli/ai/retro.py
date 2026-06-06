@@ -41,6 +41,10 @@ from aifd.insights import (
 )
 from aifd.render import render_activity_report
 
+# Pulled from the lightweight watch_state module (no watchdog dependency)
+# so `aifd ai today` works even if the user never installed watch deps.
+from aifd.vault.watch_state import catches_in_window as _watch_catches_in_window
+
 logger = logging.getLogger("aifd")
 
 
@@ -69,12 +73,17 @@ def _run_retro(
     # past, in which case projection from the literal window is correct.
     now_for_proj = datetime.now(UTC) if period_label != "custom" else end
     projection = compute_projection(report, now=now_for_proj)
+    # E10 cross-feature surface: if the watch daemon caught secrets in the
+    # same window, fold that count into the activity report. Returns 0 if
+    # watch has never run, so the line stays hidden for non-watch users.
+    watch_catches = _watch_catches_in_window(start, end)
     render_activity_report(
         report,
         delta=delta,
         projection=projection,
         period_label=period_label,
         as_json=as_json,
+        watch_catches=watch_catches,
     )
 
 
