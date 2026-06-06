@@ -326,6 +326,42 @@ if len(raw) > 16384:
 | **首次扫 onboarding 引导** | 第一次跑时引导 user 一个个 category 决定要不要 rotate |
 | **`.aifd-ignore` 文件** | 类似 .gitignore，让 user 标"这些命中我看过了不是真 secret，下次别报" |
 
+## Watch mode security
+
+v0.6 引入了 `aifd vault watch` —— 常驻 daemon，新 jsonl 行一落地就扫，发现
+secret 推 macOS 通知。完整使用指南见 [vault-watch.md](./vault-watch.md)。
+
+威胁模型 invariant（必须永远成立）：
+
+| Invariant | 实现位置 |
+|---|---|
+| **HTTP server 只绑 127.0.0.1**（不是 0.0.0.0）| `aifd/vault/watch_server.py:start_server` —— 与 v0.4 `vault scan --web` 同款 |
+| **Finding token 不可猜**（~256 bits 熵）| `aifd/vault/watch.py:_handle_match` 使用 `secrets.token_urlsafe(32)` |
+| **完整 secret 不落盘**（只存 redacted snippet）| `~/.aifd/watch-state.json` 只记 `category` + `snippet_redacted` |
+| **state file 原子写**（tmp + rename）| `WatchState.save` —— SIGKILL 半途也不会留半截 JSON |
+| **single-instance enforcement**（防止两个 daemon 同时扫）| `aifd/cli/vault/watch.py:_run_daemon_with_lock` 用 `fcntl.flock(LOCK_EX | LOCK_NB)` |
+| **HTTP server 进程死掉就死掉**（不留监听 socket）| daemon thread 模式 + `SIGTERM` handler 调 `server.stop()` |
+| **dedupe cache 永远 LRU + TTL bounded**（不会无限增长 secret）| `DedupeCache._max=1000` + 5 分钟 TTL |
+
+第三方威胁假设：
+
+- **同机器其它用户**：`~/.aifd/` 用默认 umask（0644）。Multi-user 机器上若需要更
+  强保护，自行 `chmod 700 ~/.aifd`。
+- **LAN 上其它机器**：HTTP server 绑 127.0.0.1，LAN 触不到。
+- **拿到通知 URL 的人**：URL 是 `http://127.0.0.1:PORT/findings/{TOKEN}`，token
+  是 256-bit 随机串；离开本机后这 URL 也没意义（其他机器 routes 不到 127.0.0.1）。
+- **进程内存 dump**：raw secret 在 process memory 里，越权读取 process memory 就
+  全暴露。这是接受的折衷 —— 替代方案（加密 in-memory）成本不成比例。
+
+操作上的安全建议：
+
+- 不要把 `~/.aifd/` 同步到云盘 / git。state file 虽不存完整 secret，但 `tracked_files`
+  里的 jsonl 路径仍可能泄露你的项目结构。
+- 想暂停 daemon：`aifd vault watch stop` —— 比 `kill -9` 干净，会冲 state、关
+  socket、释放端口。
+- `terminal-notifier` 比 `osascript` 更可靠（图标 + 点击行为更稳定）。daemon 自动
+  探测，没装就 fallback。
+
 ## 相关文件
 
 | 文件 | 作用 |
@@ -335,10 +371,14 @@ if len(raw) > 16384:
 | `aifd/vault/scan.py:_ENTROPY_RE` + `shannon_entropy` | 熵层 |
 | `aifd/vault/scan.py:_ENTROPY_SKIP_RE` | hash 模式跳过 |
 | `aifd/vault/scan.py:redact` | head + tail 安全裁剪 |
-| `aifd/vault/scan.py:_scan_line` | 行级扫描 + per-line dedupe |
+| `aifd/vault/scan.py:_scan_line` | 行级扫描 + per-line dedupe —— **semi-public**，被 `vault watch` 调用 |
 | `aifd/vault/scan.py:scan_file` | 文件级 + 16KB 行截断 |
 | `aifd/vault/scan.py:scan_paths` | root 列表遍历 |
+| `aifd/vault/watch.py` | v0.6 daemon: tail / dedupe / state / notifier |
+| `aifd/vault/watch_server.py` | v0.6 click-to-jump HTTP server（127.0.0.1） |
+| `aifd/cli/vault/watch.py` | v0.6 CLI: start / stop / status / install / daemon |
 | `aifd/render.py:render_scan_matches` | Table / JSON 渲染 + footer 统计 |
 | `aifd/cli/vault/scan.py` | CLI 命令 + flag |
 | `tests/test_vault_scan.py` | 15 个 detector / entropy / redact / dedupe / scan_paths 测试 |
 | `tests/test_vault_cli.py` | 4 个 CLI 端到端测试（含 "完整 secret 不出现在 JSON 输出"的 regression）|
+| `tests/test_vault_watch.py` | 27 个 v0.6 watch 测试（state / tail / dedupe / notifier / server / E10）|
