@@ -3,6 +3,131 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-06-06
+
+### Added
+
+#### `aifd ai reflect` — meta-cognitive AI coach
+
+aifd v0.7 是「查 / 扫 / 盯 / 推」型工具；v0.8 把它**反过来**：让 aifd 看你怎么
+用 AI，让 LLM 写一段 80-150 字的 weekly reflection。详见 `docs/ai-reflect.md`。
+
+9 个反思维度从现有数据计算（**不**引入新 store）：
+
+- **Activity**（v0.5 复用）—— sessions / cost / tokens / by-provider
+- **Compliance ratio** —— `(user_choice == recommended) / total`，从 gstack
+  `question-log.jsonl` 读
+- **Skill diversity** —— `distinct skills / total invocations`，从 gstack
+  `timeline.jsonl` 读
+- **Cost trend** —— `this period $ vs prev period $`，复用 v0.4 TokenUsage
+- **Timing distribution** —— 4 个 bucket（0-6 / 6-12 / 12-18 / 18-24 local 小时）
+- **Project focus** —— top-1 cwd basename + 其 share（**privacy: basename
+  only**，从不发完整路径）
+- **Plan-then-ship ratio** —— ship 前 7 天内是否跑过 plan-eng-review
+- **Vibe-coding score** —— ship 前 session message count < 5 的比例
+- **Top wins** —— 最近 clean 状态的 ship / plan-eng-review
+
+**CLI**：
+
+```bash
+aifd ai reflect                      # 默认 --week, zh
+aifd ai reflect --month --lang en
+aifd ai reflect --since 2026-06-01 --json
+aifd ai reflect --model zhipu/glm-4-plus           # 任意 LiteLLM provider
+aifd ai reflect --model ollama/qwen2.5 --api-base http://127.0.0.1:11434/v1
+aifd ai reflect -v                                  # verbose: 显示 timing breakdown
+```
+
+**Architecture locks（来自 /plan-eng-review）**：
+
+- **D1** —— `llm_client.call()` 走 **LiteLLM**（100+ provider 统一 OpenAI-format
+  路由层）。`--model` 接 `provider/model` 格式（`deepseek/deepseek-chat` /
+  `zhipu/glm-4-plus` / `dashscope/qwen-plus` / `ark/<endpoint_id>` /
+  `anthropic/claude-sonnet-4` / `ollama/qwen2.5` ...），`--api-base` override
+  endpoint。**显式拒绝 vendor lock-in**
+- **D2** —— `PROMPT_VERSION = "v1"` 写进 prompt 和 output JSON，可复现性 + audit
+- **D3** —— `ReflectionDataSource` Protocol 抽象数据源。default impl 用 gstack
+  slug 三级 fallback（gstack-slug binary / git remote owner-name / basename）。
+  缺失时 placeholder 提示，**不** crash
+- **D4** —— retry 策略：auth/4xx **不** retry，5xx/timeout/429 LiteLLM retry 1 次，
+  total budget 30s
+- **D5** —— `~/.aifd/config.yaml` (YAML 跟 webhooks 一致；state.json 仍 JSON)；
+  schema 用 generic `llm:` 段（model / api_key / api_base）而非 provider-specific
+- **D6** —— **Privacy invariant via v0.4 detector scan**：render_prompt 输出
+  跑 `_scan_line` 必须 0 SensitiveMatch。任何新 detector pattern 自动 enforce
+- **D7** —— 默认 mocked tests + 1 opt-in `live_api` pytest mark（real LLM smoke，
+  default DeepSeek 可通过 `AIFD_LIVE_MODEL` 切其它 provider），不进 CI
+- **D8** —— perf contract：local part < 500ms（testable），verbose flag 显示
+  per-stage timing breakdown (`local` / `llm` / `render`)
+
+**Privacy invariants**（D6 by detector scan）：
+
+- raw question text / session message content 永远不发
+- 完整 cwd path 永远不发（只发 basename）
+- v0.4 `_DETECTORS` 任何 secret pattern 永远不发
+- opt-in `--include-questions` 也只发 summary，不发原文
+
+**Fallback behavior**：
+
+- 没 API key → 输出引导提示 + 退化到 structured local report，**不** crash
+- LLM 401/403 (auth) → 退化到 local report + clear error message
+- LLM 400 (bad model name) → 退化 + fallback hint 提示当前 --model 值
+- LLM 429 / 5xx / timeout / connection → LiteLLM retry 1 次后退化
+- LLM 返非 JSON / 错 schema → 退化
+
+所有退化路径仍输出合法 JSON schema，下游脚本能稳定 parse。
+
+**Env vars**（precedence 从高到低）：
+
+- `AIFD_LLM_API_KEY` / `AIFD_LLM_MODEL` / `AIFD_LLM_API_BASE`（aifd-shaped，跨 provider）
+- `DEEPSEEK_API_KEY`（v0.8 pre-release 用户兼容；其它 provider 走 LiteLLM 原生
+  env var：`ZHIPUAI_API_KEY` / `DASHSCOPE_API_KEY` / `ARK_API_KEY` /
+  `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 等）
+- `~/.aifd/config.yaml` 的 `llm:` 段
+- built-in default (`deepseek/deepseek-chat`)
+
+#### New dependencies
+
+- `pyyaml>=6.0` 已经在 v0.7 引入；v0.8 复用做 config.yaml
+- `litellm>=1.50` —— **新增**。100+ LLM provider 统一接口。选 LiteLLM 而非
+  openai-sdk 是因为 openai-sdk 只覆盖 ~50% 用户想接的 endpoint，国内 provider
+  (智谱/方舟/通义) 的 OpenAI-compat quirks（tool_call shape / response_format
+  flavor / streaming chunk format / usage 字段命名）LiteLLM 已经 normalize
+- dev: `types-PyYAML` 已存在
+
+### Changed
+
+- **`aifd/insights/` 从单文件升级成 package**：
+  - `aifd/insights.py` → `aifd/insights/activity.py`（v0.5 内容）
+  - 加 `aifd/insights/__init__.py` 维持向后兼容（所有 `from aifd.insights
+    import X` 仍 work）
+  - 加 `aifd/insights/reflection.py`、`reflection_prompt.py`、
+    `reflection_source.py`、`llm_client.py`
+  - 测试 import 路径不变。一个 internal 测试（`test_today_runs_with_no_providers`）
+    需把 patch 目标从 `aifd.insights.PROVIDERS` 改成
+    `aifd.insights.activity.PROVIDERS`（package-conversion 副作用，文档已说明）
+
+### Tests
+
+新测试：
+- `tests/test_aifd_config.py` — 20 个 (YAML/env precedence/0600/atomic + legacy
+  env var compat)
+- `tests/test_insights_llm_client.py` — 16 个 (LiteLLM wrapper：response_format /
+  api_base / model string / 异常 pass-through / JSON schema validation)
+- `tests/test_reflection_data_source.py` — 11 个 (Protocol/slug fallback/jsonl parse)
+- `tests/test_insights_reflection.py` — 27 个 (9 compute_* + orchestrator + tz)
+- `tests/test_insights_reflection_prompt.py` — 15 个（含 **5 个 PRIVACY ★★★**
+  invariants via v0.4 detector scan）
+- `tests/test_render_reflection.py` — 9 个
+- `tests/test_cli_ai_reflect.py` — 13 个 (新增 provider/model 格式 + bad-model
+  fallback)
+- `tests/test_litellm_live.py` — 1 个 opt-in (`-m live_api`, skip by default，
+  可通过 `AIFD_LIVE_MODEL` 切其它 provider)
+
+总测试数：**585 passed, 2 skipped, 1 live opt-in**。
+
+
+
 ## [0.7.0] - 2026-06-05
 
 ### Added

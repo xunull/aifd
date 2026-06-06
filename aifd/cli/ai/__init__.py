@@ -7,6 +7,7 @@ import click
 from .claude import claude
 from .codex import codex
 from .question import question
+from .reflect import reflect
 from .retro import monthly, retro, today, weekly
 from .session import session
 from .skill import skill
@@ -27,3 +28,5 @@ ai.add_command(today)
 ai.add_command(weekly)
 ai.add_command(monthly)
 ai.add_command(retro)
+# v0.8 meta-cognitive coach
+ai.add_command(reflect)

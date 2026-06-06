@@ -1558,3 +1558,64 @@ def activity_report_as_dict(
             "hours_elapsed": round(projection.hours_elapsed, 2),
         }
     return payload
+
+
+# ---------- v0.8 reflection (Coach mode) ----------
+
+
+def render_reflection_text(
+    output: dict[str, object],
+    period_label: str = "this period",
+    lang: str = "zh",
+    timing_breakdown: dict[str, float] | None = None,
+) -> None:
+    """Render an LLM reflection essay to stdout.
+
+    `output` is the LLM's validated JSON output dict
+    (essay/wins/anti_pattern/concrete_action/prompt_version).
+    `timing_breakdown` (optional) is rendered when --verbose passed:
+    {"local": 0.4, "llm": 6.2, "render": 0.1}
+    """
+    console = Console()
+    essay = str(output.get("essay", ""))
+    wins = output.get("wins") or []
+    anti = str(output.get("anti_pattern", ""))
+    action = str(output.get("concrete_action", ""))
+    pv = str(output.get("prompt_version", ""))
+
+    header = (
+        f"═══ Your {period_label} with AI ═══"
+    )
+    console.print(f"[bold cyan]{header}[/]")
+    console.print()
+    console.print(essay)
+    console.print()
+
+    if isinstance(wins, list) and wins:
+        console.print("  [bold green]🏆 Wins[/]")
+        for w in wins:
+            console.print(f"    · {w}")
+        console.print()
+
+    if anti:
+        console.print("  [bold yellow]⚠ Anti-pattern[/]")
+        console.print(f"    · {anti}")
+        console.print()
+
+    if action:
+        title = "Try next period" if lang == "en" else "下周试一次"
+        console.print(f"  [bold]→ {title}:[/] {action}")
+        console.print()
+
+    if timing_breakdown:
+        parts = [
+            f"{k}={v:.2f}s" for k, v in timing_breakdown.items()
+        ]
+        meta = "  ".join(parts)
+        console.print(f"[dim]  timing: {meta}  ·  prompt_version: {pv}[/dim]")
+
+
+def render_reflection_json(output: dict[str, object]) -> None:
+    """Pipe-friendly JSON output to stdout. Schema is stable for tooling."""
+    json.dump(output, sys.stdout, indent=2, ensure_ascii=False, default=str)
+    sys.stdout.write("\n")

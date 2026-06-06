@@ -84,6 +84,33 @@ aifd vault watch · RUNNING
 
 后台 daemon 实时盯 Claude / Codex 的 session jsonl —— 新行一落地立刻扫 secret，发现了推 macOS 通知。点通知打开本地 `127.0.0.1` 页面，把泄漏的 secret 高亮显示在对话上下文里。详见 `docs/vault-watch.md`。
 
+**7. AI Coach — 让 LLM 看你怎么用 AI（v0.8）**
+
+```text
+$ aifd ai reflect --week
+═══ Your week with AI ═══
+
+上周你在 v0.7 上做了 23 次 session、花 $284，比上上周升 38%。ship 了 7 个
+commit 但其中 5 次有 plan-eng-review 前置 —— plan-then-ship 成熟模式。
+compliance ratio 87% 偏高，AskUserQuestion 87% 跟推荐 —— 是 calibration
+好还是判断懒？最值得说的 anti-pattern：周二凌晨跑 8 次 office-hours 都没
+ship，焦虑型 brainstorm。
+
+  🏆 Wins
+    · v0.7 events store 一气呵成 ship
+    · plan-eng-review 引入后 P1 issue 0 个
+    · DeepSeek over Claude 是清醒判断
+  ⚠ Anti-pattern: 凌晨 office-hours 群发症
+  → 下周试一次: 当 D1 看起来"明显对"时，强制选 B 一次
+```
+
+aifd 把你 7 个月的 session / cost / question pattern / skill 使用都倒过来照镜子，
+让 LLM 写一段 80-150 字 meta-cognitive reflection。**LLM 经 LiteLLM 路由 100+ provider**
+（DeepSeek / 智谱 / 通义 / 方舟 / Anthropic / OpenAI / Gemini / ollama / vLLM / Azure...），
+default 是 DeepSeek（~$0.001/run，中文质量好），可任意切换（OpenAI-compatible
+base_url）。Privacy: raw 内容永远不发；prompt 跑 v0.4 detector scan 兜底。详见
+`docs/ai-reflect.md`。
+
 **6. 持久化事件流 + 接外部报警（v0.7）**
 
 ```text
@@ -382,6 +409,147 @@ brew install terminal-notifier
 
 **Linux**：`install` 子命令是 macOS-only（launchd）。Linux 用 `systemctl --user` 跑 `aifd vault watch daemon`，参考 `docs/vault-watch.md` 里的 `.service` 模板。
 
+### `aifd ai reflect` — AI Coach：让 LLM 看你怎么用 AI（v0.8）
+
+aifd v0.8 把所有"做事"工具反过来 —— 让 aifd 看你这周怎么用 AI，让 LLM 写一段 80-150 字的 meta-cognitive reflection。每周一行，~$0.001/run。
+
+**首次配置**（三选一）：
+
+```bash
+# 方式 1: 环境变量（最直接）
+export DEEPSEEK_API_KEY=sk-xxxxxxxxx      # 或 ZHIPUAI_API_KEY / DASHSCOPE_API_KEY / ...
+aifd ai reflect --week
+
+# 方式 2: ~/.aifd/config.yaml（推荐长期方案）
+aifd ai reflect           # 首次跑自动生成模板
+$EDITOR ~/.aifd/config.yaml   # 填 llm.api_key + llm.model
+# 文件自动 chmod 600
+
+# 方式 3: 临时 prefix（不写入 env / 不存 history）
+DEEPSEEK_API_KEY=sk-xxx aifd ai reflect --week
+AIFD_LLM_API_KEY=sk-xxx aifd ai reflect --model zhipu/glm-4-plus
+```
+
+去 https://platform.deepseek.com/api_keys 拿 DeepSeek key（或换任意 LiteLLM
+[provider](https://docs.litellm.ai/docs/providers)）。优先级：`AIFD_LLM_*` env >
+provider 原生 env (`DEEPSEEK_API_KEY` 等) > config.yaml > built-in default。
+
+**日常使用**：
+
+```bash
+aifd ai reflect                                # 默认 --week, zh
+aifd ai reflect --month                        # 30 天回顾
+aifd ai reflect --month --lang en              # 英文输出
+aifd ai reflect --since 2026-06-01             # 自定义窗口
+aifd ai reflect --since 2026-06-01 --until 2026-06-07
+aifd ai reflect --json                         # pipe-friendly
+aifd ai reflect -v                             # verbose: 显示 timing breakdown
+aifd ai reflect --include-questions            # opt-in: 把 question summary 喂 LLM
+```
+
+**切换 LLM 后端**（任意 LiteLLM provider）：
+
+```bash
+# 国内 provider — 每家用 LiteLLM 的 provider/model 格式
+aifd ai reflect --model zhipu/glm-4-plus
+aifd ai reflect --model dashscope/qwen-plus            # 阿里通义
+aifd ai reflect --model ark/ep-xxxxx                   # 火山引擎方舟 (endpoint_id)
+aifd ai reflect --model moonshot/moonshot-v1-32k       # Kimi
+
+# 国际 provider
+aifd ai reflect --model anthropic/claude-sonnet-4
+aifd ai reflect --model openai/gpt-4o
+aifd ai reflect --model gemini/gemini-2.0-flash
+
+# 本地 ollama / 自托管 vLLM / Azure / 公司代理
+aifd ai reflect --model ollama/qwen2.5 --api-base http://127.0.0.1:11434/v1
+aifd ai reflect --model openai/qwen2.5 --api-base https://vllm.internal/v1
+
+# 或写进 ~/.aifd/config.yaml 的 llm.model / llm.api_base
+```
+
+**`~/.aifd/config.yaml` 完整 schema**（首次跑 `aifd ai reflect` 时自动生成，
+权限自动 `chmod 600`）：
+
+```yaml
+llm:
+  # LiteLLM 'provider/model' 格式 —— 换 provider 只改这一行
+  model: deepseek/deepseek-chat
+  # API key。留空让 LiteLLM 读 provider 原生 env var
+  # (DEEPSEEK_API_KEY / ZHIPUAI_API_KEY / DASHSCOPE_API_KEY / ARK_API_KEY /
+  #  ANTHROPIC_API_KEY / OPENAI_API_KEY / MOONSHOT_API_KEY / GROQ_API_KEY ...)
+  api_key: sk-xxxxxxxxx
+  # 自托管 / 代理时填；hosted provider 留空走默认 endpoint
+  api_base:
+
+reflect:
+  default_lang: zh           # en | zh
+  include_questions: false   # true = 把 question summary 喂给 LLM（仍不发原文）
+```
+
+各 provider 的 yaml 写法：
+
+```yaml
+# DeepSeek (default)
+llm: { model: deepseek/deepseek-chat, api_key: sk-... }
+
+# 智谱 GLM
+llm: { model: zhipu/glm-4-plus, api_key: ... }
+
+# 阿里通义千问 (DashScope)
+llm: { model: dashscope/qwen-plus, api_key: sk-... }
+
+# 火山引擎方舟（model 字段填 inference endpoint id，不是模型名）
+llm: { model: ark/ep-xxxxxxxx, api_key: ... }
+
+# Moonshot Kimi
+llm: { model: moonshot/moonshot-v1-32k, api_key: sk-... }
+
+# Anthropic Claude
+llm: { model: anthropic/claude-sonnet-4, api_key: sk-ant-... }
+
+# OpenAI
+llm: { model: openai/gpt-4o, api_key: sk-... }
+
+# 本地 ollama（api_key 空即可，必须填 api_base）
+llm:
+  model: ollama/qwen2.5
+  api_base: http://127.0.0.1:11434/v1
+
+# 自托管 vLLM / OpenAI-compatible 代理
+llm:
+  model: openai/qwen2.5
+  api_key: any-non-empty-string
+  api_base: https://vllm.internal/v1
+```
+
+**优先级**：`AIFD_LLM_*` env > provider 原生 env > `~/.aifd/config.yaml` > 默认值。
+v0.8 pre-release 已经在用 `DEEPSEEK_API_KEY` 的不用改，自动兼容。
+
+**9 个反思维度**（aifd 看什么）：
+
+| 维度 | 说什么 |
+|---|---|
+| Activity | sessions / cost / tokens / by-provider |
+| Compliance ratio | 你 AskUserQuestion 时跟推荐的比例 |
+| Skill diversity | distinct skill / total invocations |
+| Cost trend | 本周 vs 上周花费变化 |
+| Timing distribution | 4 个时段 bucket，看你哪时段最 productive |
+| Project focus | 最深的项目 + 其 share（**只发 basename**） |
+| Plan-then-ship | ship 前 7 天内有 plan-eng-review 的比例 |
+| Vibe-coding score | ship 前 session < 5 message 的比例 |
+| Top wins | 最近 clean ship + plan-eng-review |
+
+**Privacy invariant**（hard guarantee）：
+
+- raw question 答题原文永远不发
+- session message 内容永远不发
+- cwd 完整路径永远不发（只发 basename）
+- v0.4 detector 任何 secret pattern 永远不发（render_prompt 跑 `_scan_line` 兜底校验，0 SensitiveMatch = test pass）
+- `--include-questions` opt-in 也只发 summary，**不**发原文
+
+**Fallback**：没 API key / 401 auth / 5xx / timeout → 退化到 structured local report + 清晰 error message，不 crash。完整 spec 见 `docs/ai-reflect.md`。
+
 ### `aifd ai claude skill list` / `aifd ai codex skill list` — 列出已装 skill
 
 ```bash
@@ -477,6 +645,25 @@ uv run pytest
 uv run ruff check aifd/ tests/
 uv run mypy aifd/
 ```
+
+### Editable 安装的 dep trap
+
+如果你用 `uv tool install --editable .`（或 `pipx install -e .`）把开发版 `aifd`
+装到 PATH 上，要小心：
+
+- **source 改动会自动生效** —— editable 模式直接指向 repo，改 `.py` 不用重装。
+- **但 deps 不会自动同步** —— `uv sync` 只更新项目的 `.venv`，不碰 tool 的隔离
+  venv（`~/Library/Application Support/uv/tools/aifd/` 或 pipx 的 `~/.local/pipx/venvs/aifd/`）。
+
+所以：**`pyproject.toml` 里 deps 变了（新增、删除、bump）→ 必须重装一次**：
+
+```bash
+uv tool install --reinstall --editable .     # uv tool
+pipx reinstall aifd                          # pipx
+```
+
+报错样子通常是 `ModuleNotFoundError: No module named 'litellm'`（明明 `uv run`
+能跑，命令行直接 `aifd` 就 import 不到）—— 那就是 tool venv 里没装新 dep。
 
 ## License
 

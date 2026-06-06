@@ -20,7 +20,10 @@ def _empty_providers():  # type: ignore[no-untyped-def]
     deterministically — keeps these tests independent of the user's
     actual jsonl history.
     """
-    return patch("aifd.insights.PROVIDERS", [])
+    # After v0.8 package conversion, PROVIDERS is read from its canonical
+    # location (aifd.insights.activity.PROVIDERS) — patching the package-
+    # level alias would no longer affect summarize_activity's resolution.
+    return patch("aifd.insights.activity.PROVIDERS", [])
 
 
 def test_today_help_advertises_json_flag() -> None:

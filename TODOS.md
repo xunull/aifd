@@ -223,3 +223,38 @@
 **Context**：design doc 没提 retention。eng review 中发现这是 omission。建议 v0.7.1 加 CLI 手动 vacuum，v0.8 加 sweeper 自动。
 **Depends on / blocked by**：v0.7 events DB ship。
 
+
+## v0.8.x 后续 (eng review 输出)
+
+### `aifd config` set/get/list 子命令
+**What**：`aifd config set llm.api_key SK_...` / `aifd config get llm.model` / `aifd config list` —— central config CLI helper。
+**Why**：v0.8.0 ship 的是 "首次 reflect 引导生成 yaml" + "手动编辑"。set/get/list 让首次引导无 editor 也能完成。
+**Pros**：onboarding 丝滑；user 不用记 yaml schema；config 错误时 helpful error；多 provider 切换更方便（`aifd config set llm.model zhipu/glm-4-plus`）。
+**Cons**：~150 LOC + 5 测试；v0.8.0 不必须。
+**Context**：design `aifd ai reflect` 首次 run 时生成 `~/.aifd/config.yaml` 模板 + 引导 export AIFD_LLM_API_KEY，但不能命令式写入。v0.8.0 充足，v0.8.1 加这个。
+**Depends on / blocked by**：v0.8.0 ship + central config 模块稳定。
+
+### Reflect daily / monthly / quarterly cadence
+**What**：v0.8.0 只 ship `--week` + custom range。加 `--day`、`--month`、`--quarter` flag。
+**Why review 推迟**：weekly + custom 是最小完整集；其他 cadence 是 prompt 变体 + period 计算。
+**Pros**：quarterly reflection 是独特价值（v0.5 ai today 不做 quarterly）；daily 是低 friction 每天看一次。
+**Cons**：4 cadence × 2 lang = 8 prompt template variation 要调优；当下需求不明。
+**Context**：design 中作为 Open Question 列出。v0.8.0 用 1 周后 user feedback 决定优先级。
+**Depends on / blocked by**：v0.8.0 ship + 1 周使用 feedback。
+
+### 国内 LLM provider 实测验证（LiteLLM compat smoke）
+**What**：实测 `zhipu/glm-4-plus`、`dashscope/qwen-plus`、`ark/<endpoint_id>`、`moonshot/moonshot-v1-32k` 在 LiteLLM 下的 `response_format=json_object` + tool_call 行为，记录 quirks 进 docs/ai-reflect.md「Multi-vendor」段落。
+**Why**：v0.8.0 ship 时已切 LiteLLM 但只在 DeepSeek 上 live-tested。国内 provider 的 OpenAI-compat 程度各家不同，response_format 在某些 provider 上可能 fallback 到 prompt-based JSON instruct。
+**Pros**：写文档前先实测，避免 user 选了 provider 跑不通；catch LiteLLM 跟某家 provider 之间 spec drift 的早期信号。
+**Cons**：每家 ~$0.001/test 但要 4-5 家 API key；调试 quirks 可能 1-2 小时。
+**Context**：v0.8 LiteLLM 切换的留尾。每家 provider 都加 1 个 `live_api` 测试用 `AIFD_LIVE_MODEL` env 切换。
+**Depends on / blocked by**：v0.8.0 ship + 用户提供国内 provider key 给 maintainer。
+
+### Streaming reflection output
+**What**：LiteLLM 原生支持 `stream=True`；让 `aifd ai reflect` 边接 chunk 边渲染 essay。
+**Why review 推迟**：streaming 引入 partial JSON parsing 的复杂度（`response_format=json_object` + stream 行为各 provider 不一），UX 决策也未明（rich.live 显示？rolling text？）。
+**Pros**：长 essay 在慢 provider 上感知更快；user 不用盯空屏 6 秒。
+**Cons**：partial JSON 处理 + cancel handling + 错误 mid-stream 的 fallback 都要重做；prompt_version 中途 fail 怎么办。
+**Context**：v0.8 LiteLLM 切换打开了这道门。user 反馈如果说"reflect 等太久"再做。
+**Depends on / blocked by**：v0.8.0 ship + user reports slow render。
+
