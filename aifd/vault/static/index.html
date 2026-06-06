@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aifd vault watch</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>aifd vault watch</h1>
+  <nav>
+    <a href="#list" class="nav-link" data-view="list">Findings</a>
+    <a href="#webhooks" class="nav-link" data-view="webhooks">Webhooks</a>
+  </nav>
+</header>
+
+<main>
+  <!-- List view -->
+  <section id="list-view" class="view">
+    <div class="filters">
+      <label>
+        Status:
+        <select id="filter-status">
+          <option value="">All</option>
+          <option value="new" selected>New</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+          <option value="muted">Muted</option>
+        </select>
+      </label>
+      <label>
+        Category:
+        <input id="filter-category" type="text" placeholder="e.g. openai_key">
+      </label>
+      <button id="refresh-btn">Refresh</button>
+      <span id="total-count" class="meta"></span>
+    </div>
+    <table id="findings-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Category</th>
+          <th>Snippet</th>
+          <th class="num">Count</th>
+          <th>Last seen</th>
+          <th>Fingerprint</th>
+        </tr>
+      </thead>
+      <tbody id="findings-body">
+        <tr><td colspan="6" class="empty">Loading…</td></tr>
+      </tbody>
+    </table>
+    <div class="pagination">
+      <button id="prev-page">← Prev</button>
+      <span id="page-info"></span>
+      <button id="next-page">Next →</button>
+    </div>
+  </section>
+
+  <!-- Detail view -->
+  <section id="detail-view" class="view hidden">
+    <button class="back-btn" data-view="list">← Back to list</button>
+    <div id="detail-body">Loading…</div>
+  </section>
+
+  <!-- Webhooks view -->
+  <section id="webhooks-view" class="view hidden">
+    <h2>Configured webhooks</h2>
+    <div id="webhooks-list">Loading…</div>
+    <h3>Add webhook</h3>
+    <form id="add-webhook-form">
+      <label>ID: <input name="id" placeholder="auto-generated if empty"></label>
+      <label>URL: <input name="url" required placeholder="https://hooks.example.com/..."></label>
+      <label>Trigger:
+        <select name="on">
+          <option value="new_finding" selected>new_finding</option>
+          <option value="count_spike">count_spike</option>
+        </select>
+      </label>
+      <label>Category filter (comma-separated, blank = all):
+        <input name="categories" placeholder="openai_key,github_pat">
+      </label>
+      <label>Payload format:
+        <select name="payload_format">
+          <option value="aifd_v1" selected>aifd_v1 (generic JSON)</option>
+          <option value="pagerduty_v2">pagerduty_v2</option>
+        </select>
+      </label>
+      <label>Language:
+        <select name="lang">
+          <option value="en" selected>English</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
+      <button type="submit">Add (will be disabled until tested + enabled)</button>
+    </form>
+  </section>
+</main>
+
+<footer>
+  <p>
+    <a href="https://github.com/xunull/aifd">aifd</a>
+    · localhost only · raw secrets stay in memory
+  </p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,358 @@
+/* Minimal styling — readable, not designed-to-impress. */
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  color: #1f1f1f;
+  background: #fafafa;
+}
+
+header {
+  background: #1e1e1e;
+  color: #fff;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+header nav a {
+  color: #ccc;
+  margin-left: 16px;
+  text-decoration: none;
+  font-size: 0.9em;
+}
+
+header nav a:hover {
+  color: #fff;
+}
+
+header nav a.active {
+  color: #fff;
+  border-bottom: 2px solid #4a9eff;
+}
+
+main {
+  max-width: 1200px;
+  margin: 24px auto;
+  padding: 0 24px;
+}
+
+.view { display: block; }
+.view.hidden { display: none; }
+
+.filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.filters label {
+  font-size: 0.9em;
+  color: #555;
+}
+
+.filters select, .filters input {
+  margin-left: 4px;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.filters button {
+  padding: 4px 12px;
+  border: 1px solid #4a9eff;
+  background: #4a9eff;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.filters button:hover { background: #3a8eef; }
+
+.meta {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: #777;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+th {
+  background: #f5f5f5;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+th.num { text-align: right; }
+
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9em;
+}
+
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+tr:hover td { background: #f9f9f9; }
+
+tr.clickable { cursor: pointer; }
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 24px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-new { background: #ff5555; color: #fff; }
+.status-acknowledged { background: #ffa500; color: #fff; }
+.status-resolved { background: #4caf50; color: #fff; }
+.status-muted { background: #999; color: #fff; }
+
+.fingerprint {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8em;
+  color: #777;
+}
+
+.pagination {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+}
+
+.pagination button {
+  padding: 6px 16px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.back-btn {
+  margin-bottom: 16px;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#detail-body {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 24px;
+}
+
+#detail-body h2 {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.actions {
+  margin: 16px 0;
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  padding: 6px 14px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.actions button.ack { border-color: #ffa500; color: #ffa500; }
+.actions button.resolve { border-color: #4caf50; color: #4caf50; }
+.actions button.mute { border-color: #999; color: #999; }
+.actions button:hover { background: #f5f5f5; }
+
+.playbook {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 6px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.playbook h3 {
+  margin: 0 0 8px;
+  color: #d48806;
+  font-size: 0.95em;
+}
+
+.playbook a {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #1976d2;
+  font-weight: 600;
+}
+
+.playbook pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9em;
+  margin: 0;
+  color: #555;
+}
+
+.occurrences {
+  margin-top: 16px;
+  font-size: 0.85em;
+}
+
+.occurrences h3 {
+  font-size: 0.95em;
+  margin: 16px 0 8px;
+}
+
+.occurrences ul {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.occurrences li {
+  padding: 4px 0;
+  border-bottom: 1px dotted #eee;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+  color: #555;
+}
+
+form {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 600px;
+}
+
+form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85em;
+  color: #555;
+  gap: 4px;
+}
+
+form input, form select {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+form button[type=submit] {
+  padding: 8px 16px;
+  border: 1px solid #4a9eff;
+  background: #4a9eff;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+#webhooks-list {
+  margin-bottom: 24px;
+}
+
+.webhook-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.webhook-card .webhook-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.webhook-card .webhook-id {
+  font-weight: 600;
+}
+
+.webhook-card .webhook-url {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  color: #555;
+  word-break: break-all;
+}
+
+.webhook-card .webhook-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.webhook-card .webhook-actions button {
+  padding: 4px 10px;
+  font-size: 0.85em;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+footer {
+  text-align: center;
+  padding: 24px;
+  color: #999;
+  font-size: 0.85em;
+}
+
+footer a { color: #4a9eff; text-decoration: none; }
