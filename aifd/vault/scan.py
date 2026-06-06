@@ -214,6 +214,19 @@ def _scan_line(
     capture_context: bool = False,
     line_truncated: bool = False,
 ) -> Iterable[SensitiveMatch]:
+    """Detector pipeline for a single jsonl line.
+
+    SEMI-PUBLIC API — called by:
+      - aifd.vault.scan.scan_file (CLI `aifd vault scan`)
+      - aifd.vault.watch.Daemon._scan_one (CLI `aifd vault watch daemon`,
+        which then upserts into the v0.7 events DB and fans out webhook
+        deliveries)
+      - (planned) aifd MCP server
+
+    The signature is part of our internal contract: any change here breaks
+    the watch daemon's hot path and the events store ingestion. Stability
+    over years > prettier API.
+    """
     seen: set[tuple[str, str]] = set()
 
     # OPT-3: cheap substring prefilter. ~92% of real jsonl lines don't
