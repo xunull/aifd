@@ -258,3 +258,26 @@
 **Context**：v0.8 LiteLLM 切换打开了这道门。user 反馈如果说"reflect 等太久"再做。
 **Depends on / blocked by**：v0.8.0 ship + user reports slow render。
 
+## v0.9.x 后续 (eng review 输出)
+
+### Git 集成 / revert tracking（D1 留尾）
+**What**：v0.9 design D1 原本想算「22 点后 session 在次日被 revert / drop 的比例」，但 aifd 不读 git history。当前 ship 用「24h 内有无 ship」近似。v0.10 加 git 集成：跑 `git log --since="N days ago"` 拿 commit + revert 事件，关联到 session 时间窗。
+**Why**：「revert 率」比「无 ship 率」语义更精准 —— ship 后被 revert 才是真正的「深夜决策错误」。
+**Pros**：habits 的核心 insight（深夜决策质量）能从「相关性」升级到「因果」。
+**Cons**：引入 git 调用 + cwd → repo 映射（一个 session 的 cwd 可能不是 git root）+ revert commit 解析（`git log --grep='Revert'` 或 `--diff-filter`）。新依赖层 ~200 LOC。
+**Context**：v0.9 用 SkillEvent 已足以揭示规律；real user 跑 1 个季度看 LLM 命名出的 pattern 质量后决定是否升级。
+**Depends on / blocked by**：v0.9.0 ship + 至少 1 个用户的 90 天 habits 输出反馈。
+
+### habits 历史对比（quarter-over-quarter）
+**What**：`aifd ai habits compare --this-quarter --last-quarter` —— 跟 reflect 历史 store 是同一类问题：需要把 habits 输出（patterns 数组）持久化才能对比。
+**Why**：「我这季度比上季度有进步吗」是用户跑 habits 第二、三次时最自然的下一个问题。
+**Pros**：把 habits 从「一次性自我画像」升级成「长期进步轨迹」。
+**Cons**：需要建 habits 输出 store（SQLite 或 JSONL）；跟 office-hours design 中 Approach C（reflect history meta-analysis）共用同一层基础设施。
+**Context**：v0.9 design 明确推到 v0.10+。冷启动问题：用户第一次跑没有历史，第二次跑只有 1 个历史点。等用户跑 2-3 次再做。
+**Depends on / blocked by**：v0.9.0 ship + 用户至少跑 2 次 habits（说明 2 个季度过去了）。
+
+### `aifd config set habits.default_days N`（复用 v0.8.x TODO）
+**What**：已在 v0.8.x 的 `aifd config` set/get/list 子命令里隐含。habits 加入后用户更需要这个 helper —— 因为 habits 跑频率低，临时用 CLI 改默认窗口的 friction 更高。
+**Why**：bump up v0.8.x 那条 TODO 的优先级。
+**Context**：参考 v0.8.x 段「aifd config 子命令」。
+

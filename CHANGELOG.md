@@ -3,6 +3,96 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-06-07
+
+### Added
+
+#### `aifd ai habits` — 长期 AI 行为人格画像
+
+v0.8 的 `aifd ai reflect` 回答「这周怎么样」；v0.9 加 `aifd ai habits`
+回答「**我是什么类型的 AI 用户**」。分析 60-90 天的 session 数据，让 LLM
+识别用户**自己没意识到**的行为模式，每个模式附具体数字证据 + so-what 建议。
+
+完整规格见 `docs/ai-habits.md`。
+
+**新维度（8 个，专为长期行为设计）**：
+
+- **星期分布** —— session_count + vibe_rate 按 0-6 分桶（揭示「周五放松崩」）
+- **时段分布（2h 粒度）** —— 比 reflect 的 6h 桶更细，能看到具体 peak 时段
+- **session 双峰** —— event_count 分布检测，揭示「quick check vs deep work」两种模式
+- **项目切换频率** —— 单日跨 cwd 中位数（专注度 vs 散）
+- **ship 间隔** —— 连续 ship 之间天数中位数（节奏感）
+- **深夜 ship 率** —— 22 点+ session 在 24h 内有 ship 的比例（D1 用 SkillEvent，不引 git）
+- **过度规划率** —— office-hours session 后没 ship 的比例（分析瘫痪程度）
+- **skill 重复率** —— top skill 占比（专注 vs 尝新）
+
+**CLI**：
+
+```bash
+aifd ai habits                              # 默认 90 天
+aifd ai habits --since 60d                  # 自定义窗口
+aifd ai habits --since 2026-01-01           # ISO 起点
+aifd ai habits --lang en --json
+aifd ai habits --model zhipu/glm-4-plus
+aifd ai habits -v
+```
+
+**Architecture locks（来自 /plan-eng-review）**：
+
+- **D1** —— 「深夜→次日」简化为 `late_night_ship_rate`（22点+ session 后 24h 内
+  有无 ship，纯 SkillEvent 计算），**不**引入 git 集成。revert 追踪推到 v0.10。
+- **D2** —— 星期分布只用 session_count + vibe_rate，**不**用 cost（Session 没
+  per-session cost 字段；不改 summarize_activity 的 v0.5 API）。
+- **D3** —— `HabitsInput` 是独立 dataclass，**不**继承 `ReflectionInput`。
+  两者公共字段仅 period_start/end，共同基类无复用价值。
+- **D4** —— 新增 `HabitsConfig(default_days=90)` 进 `config.py`；用户可在
+  `~/.aifd/config.yaml` 的 `habits:` 段覆盖；`--since` 临时覆盖。
+- **D5** —— 提取 `_hour_to_bucket(hour, granularity)` 到 `habits.py`；
+  `reflection.py` 委托调用并传 `granularity=6`（向后兼容）。
+
+**Privacy invariants（D6 from v0.8，继承）**：
+
+- 原始问题文本 / session 内容 / cwd 完整路径 永远不发
+- 只发：聚合数字 / 比率 / basename / ISO 日期
+- prompt rendering 输出跑 v0.4 `_DETECTORS` 全套，0 SensitiveMatch = test pass
+
+**Fallback behavior**：
+
+- 没 API key → fallback 到结构化本地输出（空 patterns + `_fallback_reason`）
+- LLM auth / 400 / 429 / 5xx / timeout / schema 错 → 全部 fallback，**不 crash**
+- 数据不足（90 天内 sessions 空 / 没 ship / office-hours 少于 3）→ 各 compute_* 返回 None → prompt 显示 `(no data)` → LLM 跳过那一维度
+
+**性能**：
+
+- `collect_habits_data` 一次性 materialize sessions + skill_events，避免 iterator
+  被多个 compute_* 消耗后变空（reflect 同样模式）
+- 90 天 ~ 900 sessions（重度用户）→ 单线程 O(n) < 50ms，无需并行
+
+#### New dependencies
+
+- 无新增。完全复用 v0.8 引入的 `litellm>=1.50` + `pyyaml>=6.0`
+
+### Changed
+
+- `aifd/insights/reflection.py:_hour_to_bucket` 委托给
+  `aifd/insights/habits.py:_hour_to_bucket`（DRY），新增 `granularity` 参数。
+  现有 `compute_timing_distribution` 默认仍是 6h 桶，行为不变。
+- `aifd/config.py:Config` 增加 `habits: HabitsConfig` 字段；`load()` 新增 `habits:`
+  段解析（非法 default_days 退回 90，与 reflect 段的容错策略一致）。
+- `~/.aifd/config.yaml` 模板增加 `habits:` 段（首次跑 `aifd ai habits` 时自动生成）。
+- `aifd/cli/ai/__init__.py` 注册 `aifd ai habits` 命令。
+
+### Tests
+
+新增测试（61 个）：
+- `tests/test_insights_habits.py` — 25 个 (8 compute_habit_* + `_hour_to_bucket` 参数化 + orchestrator + tz 边界)
+- `tests/test_insights_habits_prompt.py` — 15 个（含 **5 个 PRIVACY ★★★** invariants via v0.4 detector）
+- `tests/test_cli_ai_habits.py` — 12 个 (--help / no-key fallback / --json / --since 解析 / --lang / model/api-base override / config 覆盖)
+- `tests/test_render_habits.py` — 9 个
+- `tests/test_aifd_config.py` — +5 个 (HabitsConfig 默认 / yaml 覆盖 / 非法值 / save 往返 / template 检查)
+
+总测试数：**651 passed, 2 skipped**（v0.8 的 585 → 651）。
+
 ## [0.8.0] - 2026-06-06
 
 ### Added

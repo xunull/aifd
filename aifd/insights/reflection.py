@@ -138,10 +138,16 @@ def compute_cost_trend_ratio(
 
 def compute_timing_distribution(
     sessions: Iterable[Session],
+    granularity: int = 6,
 ) -> list[TimingBucket]:
-    """Bucket sessions by start-hour-of-day (LOCAL tz)."""
+    """Bucket sessions by start-hour-of-day (LOCAL tz).
+
+    granularity=6  → 4 buckets, used by `aifd ai reflect`
+    granularity=2  → 12 buckets, used by `aifd ai habits`
+    """
     buckets: dict[str, list[int]] = {
-        "0-6": [], "6-12": [], "12-18": [], "18-24": [],
+        f"{h}-{h + granularity}": []
+        for h in range(0, 24, granularity)
     }
     for s in sessions:
         if s.started_at is None:
@@ -151,7 +157,7 @@ def compute_timing_distribution(
             hour = s.started_at.astimezone().hour
         except (ValueError, OverflowError):
             continue
-        label = _hour_to_bucket(hour)
+        label = _hour_to_bucket(hour, granularity)
         buckets[label].append(s.event_count or 0)
 
     return [
@@ -166,14 +172,10 @@ def compute_timing_distribution(
     ]
 
 
-def _hour_to_bucket(hour: int) -> str:
-    if 0 <= hour < 6:
-        return "0-6"
-    if 6 <= hour < 12:
-        return "6-12"
-    if 12 <= hour < 18:
-        return "12-18"
-    return "18-24"
+def _hour_to_bucket(hour: int, granularity: int = 6) -> str:
+    """Delegates to habits._hour_to_bucket — single implementation."""
+    from aifd.insights.habits import _hour_to_bucket as _htb
+    return _htb(hour, granularity)
 
 
 def compute_project_focus(

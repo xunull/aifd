@@ -10,6 +10,7 @@ import pytest
 from aifd.config import (
     CONFIG_PATH,
     Config,
+    HabitsConfig,
     LLMConfig,
     ReflectConfig,
     load,
@@ -246,3 +247,39 @@ def test_no_warning_when_perms_correct(
 def test_config_path_constant_under_home() -> None:
     assert CONFIG_PATH.parent.name == ".aifd"
     assert CONFIG_PATH.name == "config.yaml"
+
+
+# ---------- HabitsConfig ----------
+
+
+def test_load_habits_config_default(cfg_path: Path) -> None:
+    cfg = load(cfg_path)
+    assert cfg.habits.default_days == 90
+
+
+def test_load_habits_config_from_yaml(cfg_path: Path) -> None:
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text("habits:\n  default_days: 60\n")
+    cfg = load(cfg_path)
+    assert cfg.habits.default_days == 60
+
+
+def test_load_habits_invalid_days_falls_back_to_default(cfg_path: Path) -> None:
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text("habits:\n  default_days: not-a-number\n")
+    cfg = load(cfg_path)
+    assert cfg.habits.default_days == 90
+
+
+def test_save_habits_roundtrip(cfg_path: Path) -> None:
+    cfg = Config(habits=HabitsConfig(default_days=60))
+    save(cfg, cfg_path)
+    loaded = load(cfg_path)
+    assert loaded.habits.default_days == 60
+
+
+def test_write_template_includes_habits_section(cfg_path: Path) -> None:
+    write_template(cfg_path)
+    content = cfg_path.read_text()
+    assert "habits:" in content
+    assert "default_days" in content

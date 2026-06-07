@@ -12,7 +12,7 @@ Read precedence (D2 from /plan-eng-review):
 Write: atomic tmp+rename (mirror watch_state pattern); chmod 0600 on
 first write; warn-only when existing perms are world-readable.
 
-Schema (v0.8.0):
+Schema (v0.9.0):
 
     llm:
       provider: deepseek/deepseek-chat  # LiteLLM "provider/model" form
@@ -25,6 +25,8 @@ Schema (v0.8.0):
     reflect:
       default_lang: zh
       include_questions: false
+    habits:
+      default_days: 90
 """
 
 from __future__ import annotations
@@ -80,9 +82,17 @@ class ReflectConfig:
 
 
 @dataclass(frozen=True)
+class HabitsConfig:
+    """Config for `aifd ai habits` long-term behaviour analysis."""
+
+    default_days: int = 90
+
+
+@dataclass(frozen=True)
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     reflect: ReflectConfig = field(default_factory=ReflectConfig)
+    habits: HabitsConfig = field(default_factory=HabitsConfig)
 
 
 def load(path: Path = _UNSET) -> Config:
@@ -110,10 +120,13 @@ def load(path: Path = _UNSET) -> Config:
 
     llm_data = data.get("llm") or {}
     reflect_data = data.get("reflect") or {}
+    habits_data = data.get("habits") or {}
     if not isinstance(llm_data, dict):
         llm_data = {}
     if not isinstance(reflect_data, dict):
         reflect_data = {}
+    if not isinstance(habits_data, dict):
+        habits_data = {}
 
     api_key = (
         os.environ.get(_AIFD_ENV_API_KEY)
@@ -130,6 +143,14 @@ def load(path: Path = _UNSET) -> Config:
         or "deepseek/deepseek-chat"
     )
 
+    raw_days = habits_data.get("default_days", 90)
+    try:
+        default_days = int(raw_days)
+        if default_days < 1:
+            default_days = 90
+    except (TypeError, ValueError):
+        default_days = 90
+
     return Config(
         llm=LLMConfig(
             api_key=api_key,
@@ -139,6 +160,9 @@ def load(path: Path = _UNSET) -> Config:
         reflect=ReflectConfig(
             default_lang=str(reflect_data.get("default_lang", "zh")),
             include_questions=bool(reflect_data.get("include_questions", False)),
+        ),
+        habits=HabitsConfig(
+            default_days=default_days,
         ),
     )
 
@@ -184,6 +208,11 @@ def write_template(path: Path = _UNSET) -> None:
         "  # When true, --include-questions becomes default;\n"
         "  # sends question summaries to LLM (still NOT raw text).\n"
         "  include_questions: false\n"
+        "\n"
+        "habits:\n"
+        "  # Default analysis window for `aifd ai habits` (days).\n"
+        "  # Override per-run with --since Nd (e.g. --since 60d).\n"
+        "  default_days: 90\n"
     )
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(template, encoding="utf-8")
@@ -211,6 +240,9 @@ def save(cfg: Config, path: Path = _UNSET) -> None:
         "reflect": {
             "default_lang": cfg.reflect.default_lang,
             "include_questions": cfg.reflect.include_questions,
+        },
+        "habits": {
+            "default_days": cfg.habits.default_days,
         },
     }
     tmp = path.with_suffix(path.suffix + ".tmp")

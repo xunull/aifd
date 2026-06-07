@@ -1619,3 +1619,67 @@ def render_reflection_json(output: dict[str, object]) -> None:
     """Pipe-friendly JSON output to stdout. Schema is stable for tooling."""
     json.dump(output, sys.stdout, indent=2, ensure_ascii=False, default=str)
     sys.stdout.write("\n")
+
+
+# ---------- v0.9 habits (long-term behaviour portrait) ----------
+
+
+def render_habits_text(
+    output: dict[str, object],
+    period_days: int = 90,
+    lang: str = "zh",
+    timing_breakdown: dict[str, float] | None = None,
+) -> None:
+    """Render LLM-identified behavioural patterns to stdout.
+
+    `output` is the LLM's validated JSON dict with `patterns` array.
+    Each pattern has: name / evidence / suggestion.
+    """
+    console = Console()
+    patterns = output.get("patterns") or []
+    pv = str(output.get("prompt_version", ""))
+    fallback_reason = output.get("_fallback_reason")
+
+    if lang == "en":
+        header = f"═══ Your AI Habits (last {period_days} days) ═══"
+        empty_msg = "No patterns identified — not enough data or LLM unavailable."
+    else:
+        header = f"═══ 你的 AI 行为人格 ({period_days} 天画像) ═══"
+        empty_msg = "没有识别出模式 —— 数据不足或 LLM 不可用。"
+    console.print(f"[bold cyan]{header}[/]")
+    console.print()
+
+    if not isinstance(patterns, list) or not patterns:
+        console.print(f"[dim]{empty_msg}[/dim]")
+        if fallback_reason:
+            console.print(f"[dim]  reason: {fallback_reason}[/dim]")
+    else:
+        for i, p in enumerate(patterns, start=1):
+            if not isinstance(p, dict):
+                continue
+            name = str(p.get("name", "")).strip()
+            evidence = str(p.get("evidence", "")).strip()
+            suggestion = str(p.get("suggestion", "")).strip()
+            label = f"模式 {i}" if lang == "zh" else f"Pattern {i}"
+            console.print(f"[bold yellow]{label}「{name}」[/]")
+            if evidence:
+                console.print(f"  {evidence}")
+            if suggestion:
+                arrow_label = "→ Try" if lang == "en" else "→ 建议"
+                console.print(f"  [bold green]{arrow_label}:[/] {suggestion}")
+            console.print()
+
+    if timing_breakdown:
+        parts = [
+            f"{k}={v:.2f}s" for k, v in timing_breakdown.items()
+        ]
+        meta = "  ".join(parts)
+        console.print(f"[dim]  timing: {meta}  ·  prompt_version: {pv}[/dim]")
+    elif pv:
+        console.print(f"[dim]  prompt_version: {pv}[/dim]")
+
+
+def render_habits_json(output: dict[str, object]) -> None:
+    """Pipe-friendly JSON for habits. Same schema as LLM output."""
+    json.dump(output, sys.stdout, indent=2, ensure_ascii=False, default=str)
+    sys.stdout.write("\n")

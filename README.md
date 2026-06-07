@@ -550,6 +550,51 @@ v0.8 pre-release 已经在用 `DEEPSEEK_API_KEY` 的不用改，自动兼容。
 
 **Fallback**：没 API key / 401 auth / 5xx / timeout → 退化到 structured local report + 清晰 error message，不 crash。完整 spec 见 `docs/ai-reflect.md`。
 
+### `aifd ai habits` — 长期 AI 行为人格画像（v0.9）
+
+`reflect` 回答「这周怎么样」；`habits` 回答「**我是什么类型的 AI 用户**」。
+分析 60-90 天的 session 数据，让 LLM 识别你**自己没意识到**的行为模式。
+
+```
+$ aifd ai habits
+═══ 你的 AI 行为人格 (90 天画像) ═══
+
+模式 1「周五放松崩」
+你周五的 vibe-coding 比率是工作日均值的 2.4x。
+  → 建议：周五下午 5 点后不要开新的 plan review。
+
+模式 2「深夜决策次日后悔」
+22 点后开始的 session 仅 33% 在 24 小时内 ship。
+  → 建议：复杂架构决策推到次日早晨。
+```
+
+跟 `reflect` 的分工：
+
+| | `aifd ai reflect` | `aifd ai habits` |
+|---|---|---|
+| 时间窗口 | 7-30 天 | 60-90 天 |
+| 频率 | 每周 | 每季度或按需 |
+| LLM 任务 | 写反思 essay | 命名模式 + 数字证据 |
+
+```bash
+aifd ai habits                              # 默认 90 天
+aifd ai habits --since 60d
+aifd ai habits --since 2026-01-01
+aifd ai habits --lang en --json
+aifd ai habits --model zhipu/glm-4-plus     # 任何 LiteLLM provider
+```
+
+`~/.aifd/config.yaml` 加 `habits:` 段（首次跑自动生成）：
+
+```yaml
+habits:
+  default_days: 90
+```
+
+8 个维度（星期分布 / 时段分布 / session 双峰 / 项目切换频率 / ship 间隔 /
+深夜 ship 率 / 过度规划率 / skill 重复率），与 `reflect` 共享 LiteLLM 路由层
+和 D6 privacy invariant。完整规格见 `docs/ai-habits.md`。
+
 ### `aifd ai claude skill list` / `aifd ai codex skill list` — 列出已装 skill
 
 ```bash

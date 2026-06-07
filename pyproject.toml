@@ -1,6 +1,6 @@
 [project]
 name = "aifd"
-version = "0.8.0"
+version = "0.9.0"
 description = "List AI coding sessions (Claude Code, Codex, Cursor) for the current directory across all your AI tools"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -109,6 +109,12 @@ select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 # Reflection prompt has intentional Chinese rules string with fullwidth
 # punctuation; that's idiomatic for the LLM to follow.
 "aifd/insights/reflection_prompt.py" = ["RUF001", "RUF002", "RUF003"]
+# Habits prompt + CLI fallback hints use the same intentional fullwidth
+# Chinese punctuation as the reflection counterpart.
+"aifd/insights/habits_prompt.py" = ["RUF001", "RUF002", "RUF003"]
+"aifd/insights/habits.py" = ["RUF001", "RUF002", "RUF003"]
+"aifd/cli/ai/habits.py" = ["RUF001", "RUF002", "RUF003"]
+"aifd/render.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"
