@@ -9,9 +9,11 @@ from __future__ import annotations
 from aifd.providers.base import Provider
 from aifd.providers.claude import ClaudeProvider
 from aifd.providers.codex import CodexProvider
+from aifd.providers.opencode import OpenCodeProvider
 
 PROVIDERS: list[Provider] = [
     ClaudeProvider(),
     CodexProvider(),
+    OpenCodeProvider(),
     # v0.2: CursorProvider(),
 ]

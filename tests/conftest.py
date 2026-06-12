@@ -277,6 +277,93 @@ def codex_db(codex_root: Path):
     return _insert
 
 
+_OPENCODE_DB_SCHEMA = """
+CREATE TABLE session (
+    id TEXT PRIMARY KEY,
+    directory TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    time_created INTEGER NOT NULL DEFAULT 0,
+    model TEXT,
+    parent_id TEXT,
+    tokens_input INTEGER NOT NULL DEFAULT 0,
+    tokens_output INTEGER NOT NULL DEFAULT 0,
+    tokens_reasoning INTEGER NOT NULL DEFAULT 0,
+    tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+    tokens_cache_write INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+@pytest.fixture
+def opencode_root(tmp_path: Path) -> Path:
+    """Empty OpenCode data root; tests populate via `opencode_db`."""
+    return tmp_path / "opencode_data"
+
+
+@pytest.fixture
+def opencode_skills_root(tmp_path: Path) -> Path:
+    """Empty OpenCode skills root."""
+    p = tmp_path / "opencode_skills"
+    p.mkdir()
+    return p
+
+
+@pytest.fixture
+def opencode_db(opencode_root: Path):
+    """Factory: create opencode.db under opencode_root, return a session-inserter.
+
+    Inserter signature:
+        insert(id, directory, *, title='', time_created=1717200000000,
+               model=None, parent_id=None,
+               tokens_input=0, tokens_output=0, tokens_reasoning=0,
+               tokens_cache_read=0, tokens_cache_write=0)
+    """
+    opencode_root.mkdir(parents=True, exist_ok=True)
+    db_path = opencode_root / "opencode.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(_OPENCODE_DB_SCHEMA)
+    conn.commit()
+    conn.close()
+
+    def _insert(
+        id: str,
+        directory: str,
+        *,
+        title: str = "",
+        time_created: int = 1717200000000,
+        model: str | None = None,
+        parent_id: str | None = None,
+        tokens_input: int = 0,
+        tokens_output: int = 0,
+        tokens_reasoning: int = 0,
+        tokens_cache_read: int = 0,
+        tokens_cache_write: int = 0,
+    ) -> None:
+        c = sqlite3.connect(db_path)
+        c.execute(
+            "INSERT INTO session(id, directory, title, time_created, model, parent_id, "
+            "tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                id,
+                directory,
+                title,
+                time_created,
+                model,
+                parent_id,
+                tokens_input,
+                tokens_output,
+                tokens_reasoning,
+                tokens_cache_read,
+                tokens_cache_write,
+            ),
+        )
+        c.commit()
+        c.close()
+
+    return _insert
+
+
 @pytest.fixture
 def make_codex_rollout(codex_root: Path):
     """Factory: create a Codex rollout-*.jsonl in sessions/ or archived_sessions/."""

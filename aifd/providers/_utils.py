@@ -7,6 +7,7 @@ the new skill-invocation parsers reuse these directly.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 
@@ -118,6 +119,28 @@ def split_recommended_suffix(label: str) -> tuple[str, bool]:
 # nested maps are ignored — they exist in SKILL.md (e.g. `allowed-tools:`) but
 # none of them are interesting for "what's installed" listings.
 _FRONTMATTER_KEYS = {"name", "description", "version"}
+
+
+def parse_opencode_model(json_str: str) -> str | None:
+    """Parse OpenCode's JSON model field into a display string.
+
+    OpenCode stores model as JSON: {"id":"MiniMax-M3","providerID":"minimax-cn-coding-plan"}
+    Returns "MiniMax-M3 (minimax-cn-coding-plan)" or just "MiniMax-M3" when no providerID.
+    Returns None on missing/unparseable input.
+    """
+    if not json_str:
+        return None
+    try:
+        d = json.loads(json_str)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    mid = (d.get("id") or d.get("modelID") or "").strip()
+    pid = (d.get("providerID") or "").strip()
+    if not mid:
+        return None
+    return f"{mid} ({pid})" if pid else mid
 
 
 def parse_skill_frontmatter(text: str) -> dict[str, str]:
