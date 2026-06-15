@@ -365,6 +365,90 @@ def opencode_db(opencode_root: Path):
 
 
 @pytest.fixture
+def cursor_root(tmp_path: Path) -> Path:
+    """Empty Cursor User dir; tests populate via `cursor_db`."""
+    return tmp_path / "cursor_user"
+
+
+@pytest.fixture
+def cursor_db(cursor_root: Path):
+    """Factory reproducing Cursor's two-store layout.
+
+    Returns an object with two methods:
+      add_workspace(ws_hash, cwd)  — writes workspaceStorage/<hash>/workspace.json
+      add_composer(cid, *, name='', created_at=..., ws_id=None, bubbles=0,
+                   token_count=None, in_headers=True)
+        - bubbles > 0       → real session (writes bubbleId:<cid>:<n> rows)
+        - ws_id = <hash>     → joins to a workspace via composerHeaders (cwd)
+        - ws_id = '<digits>' → timestamp-form (no cwd) — the unmapped case
+        - in_headers=False   → not in composerHeaders at all (also unmapped)
+
+    The empty-shell case is just `bubbles=0`. The timestamp-wsid and
+    unmapped cases are what a single-table fixture can't represent.
+    """
+    from types import SimpleNamespace
+
+    gdir = cursor_root / "globalStorage"
+    gdir.mkdir(parents=True, exist_ok=True)
+    gdb = gdir / "state.vscdb"
+    conn = sqlite3.connect(gdb)
+    conn.executescript(
+        "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);"
+        "CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);"
+    )
+    conn.commit()
+    conn.close()
+
+    headers: list[dict] = []
+
+    def add_workspace(ws_hash: str, cwd: str) -> None:
+        wd = cursor_root / "workspaceStorage" / ws_hash
+        wd.mkdir(parents=True, exist_ok=True)
+        (wd / "workspace.json").write_text(
+            json.dumps({"folder": f"file://{cwd}"}), encoding="utf-8"
+        )
+
+    def add_composer(
+        cid: str,
+        *,
+        name: str = "",
+        created_at: int = 1700000000000,
+        ws_id: str | None = None,
+        bubbles: int = 0,
+        token_count: int | None = None,
+        in_headers: bool = True,
+    ) -> None:
+        c = sqlite3.connect(gdb)
+        data: dict = {"name": name, "createdAt": created_at}
+        if token_count is not None:
+            data["tokenCount"] = token_count
+        c.execute(
+            "INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)",
+            (f"composerData:{cid}", json.dumps(data)),
+        )
+        for b in range(bubbles):
+            c.execute(
+                "INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)",
+                (f"bubbleId:{cid}:{b}", json.dumps({"text": "x"})),
+            )
+        if in_headers:
+            h: dict = {"composerId": cid, "createdAt": created_at}
+            if ws_id is not None:
+                h["workspaceIdentifier"] = {"id": ws_id}
+            headers.append(h)
+            c.execute(
+                "INSERT OR REPLACE INTO ItemTable(key, value) VALUES (?, ?)",
+                ("composer.composerHeaders", json.dumps({"allComposers": headers})),
+            )
+        c.commit()
+        c.close()
+
+    return SimpleNamespace(
+        root=cursor_root, add_workspace=add_workspace, add_composer=add_composer
+    )
+
+
+@pytest.fixture
 def make_codex_rollout(codex_root: Path):
     """Factory: create a Codex rollout-*.jsonl in sessions/ or archived_sessions/."""
 

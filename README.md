@@ -836,7 +836,7 @@ aifd ai retro --json        # 几乎所有命令都支持 --json
 | Claude Code | ✅ | 读 `~/.claude/projects/{encoded-cwd}/*.jsonl` |
 | Codex | ✅ | 读 `~/.codex/state_5.sqlite` + `~/.codex/sessions/` 兜底 |
 | OpenCode | ✅ v0.10 | 读 `~/.local/share/opencode/opencode.db`（SQLite）；session / token 已支持，skill 调用与 question 暂返回空 |
-| Cursor | ⏳ roadmap | 需要 SQLite + workspace-hash 反查（见 [TODOS.md](./TODOS.md)）|
+| Cursor | ✅ v0.11 | 读 `globalStorage/state.vscdb` + `workspaceStorage/`（跨 store JOIN）；session 已支持（hash 映射 ~80%，空壳过滤），按目录列；skill 调用与 question 返回空 |
 
 | LLM provider（经 LiteLLM）| 命令支持 |
 |---|---|
