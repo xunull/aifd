@@ -65,6 +65,13 @@ _AIFD_ENV_MODEL = "AIFD_LLM_MODEL"
 # set; honor it when AIFD_LLM_API_KEY isn't present, so the upgrade is silent.
 _LEGACY_ENV_API_KEY = "DEEPSEEK_API_KEY"
 
+# `aifd quota` reads the MiniMax coding-plan key independently of the LLM key
+# (E2 from /plan-eng-review). llm.api_key powers `aifd ai reflect` (DeepSeek by
+# default); the coding-plan key is a separate subscription credential, usually
+# a different key — so we NEVER fall back to llm.api_key. Precedence:
+# MINIMAX_API_KEY env > minimax: section.
+_MINIMAX_ENV_API_KEY = "MINIMAX_API_KEY"
+
 
 @dataclass(frozen=True)
 class LLMConfig:
@@ -89,10 +96,25 @@ class HabitsConfig:
 
 
 @dataclass(frozen=True)
+class MinimaxConfig:
+    """Config for `aifd quota` — MiniMax Coding Plan 5h-window usage query.
+
+    Independent of LLMConfig (E2): llm.api_key is whatever provider powers
+    `aifd ai reflect` (DeepSeek by default); this is the MiniMax coding-plan
+    subscription key, usually a different credential. Read from env
+    MINIMAX_API_KEY first, then the `minimax:` config section — never
+    llm.api_key.
+    """
+
+    api_key: str | None = None
+
+
+@dataclass(frozen=True)
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     reflect: ReflectConfig = field(default_factory=ReflectConfig)
     habits: HabitsConfig = field(default_factory=HabitsConfig)
+    minimax: MinimaxConfig = field(default_factory=MinimaxConfig)
 
 
 def load(path: Path = _UNSET) -> Config:
@@ -121,12 +143,15 @@ def load(path: Path = _UNSET) -> Config:
     llm_data = data.get("llm") or {}
     reflect_data = data.get("reflect") or {}
     habits_data = data.get("habits") or {}
+    minimax_data = data.get("minimax") or {}
     if not isinstance(llm_data, dict):
         llm_data = {}
     if not isinstance(reflect_data, dict):
         reflect_data = {}
     if not isinstance(habits_data, dict):
         habits_data = {}
+    if not isinstance(minimax_data, dict):
+        minimax_data = {}
 
     api_key = (
         os.environ.get(_AIFD_ENV_API_KEY)
@@ -151,6 +176,12 @@ def load(path: Path = _UNSET) -> Config:
     except (TypeError, ValueError):
         default_days = 90
 
+    # MiniMax coding-plan key — env wins, then config; never llm.api_key (E2).
+    minimax_key = (
+        os.environ.get(_MINIMAX_ENV_API_KEY)
+        or minimax_data.get("api_key")
+    )
+
     return Config(
         llm=LLMConfig(
             api_key=api_key,
@@ -163,6 +194,9 @@ def load(path: Path = _UNSET) -> Config:
         ),
         habits=HabitsConfig(
             default_days=default_days,
+        ),
+        minimax=MinimaxConfig(
+            api_key=minimax_key,
         ),
     )
 
@@ -213,6 +247,12 @@ def write_template(path: Path = _UNSET) -> None:
         "  # Default analysis window for `aifd ai habits` (days).\n"
         "  # Override per-run with --since Nd (e.g. --since 60d).\n"
         "  default_days: 90\n"
+        "\n"
+        "minimax:\n"
+        "  # MiniMax Coding Plan key for `aifd quota` (5h-window usage).\n"
+        "  # SEPARATE from llm.api_key above — this is your coding-plan\n"
+        "  # subscription credential. Env MINIMAX_API_KEY overrides this.\n"
+        "  api_key: \n"
     )
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(template, encoding="utf-8")
@@ -243,6 +283,9 @@ def save(cfg: Config, path: Path = _UNSET) -> None:
         },
         "habits": {
             "default_days": cfg.habits.default_days,
+        },
+        "minimax": {
+            "api_key": cfg.minimax.api_key,
         },
     }
     tmp = path.with_suffix(path.suffix + ".tmp")

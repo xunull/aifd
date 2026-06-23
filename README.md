@@ -820,6 +820,37 @@ habits:
 
 **优先级：** `AIFD_LLM_*` env > provider 原生 env (`DEEPSEEK_API_KEY` / `ZHIPUAI_API_KEY` / ...) > `~/.aifd/config.yaml` > 默认值 (`deepseek/deepseek-chat`)。
 
+### `aifd quota` — MiniMax Coding Plan 5h 额度（v0.12）
+
+用 MiniMax Coding Plan 订阅写代码时，随时查当前 5 小时滚动窗口还剩多少额度，免得写一半用超被卡：
+
+```bash
+aifd quota            # 默认查 MiniMax
+aifd quota minimax    # 显式指定（等价）
+```
+
+输出：
+
+```text
+MiniMax 5h: 剩 99%，3h27m 后重置
+```
+
+配置 key（跟 LLM key 分开 —— 这是你的 coding-plan 订阅 key，不是 reflect/habits 的 LLM key）：
+
+```bash
+export MINIMAX_API_KEY=你的key            # env 优先
+```
+
+```yaml
+# 或 ~/.aifd/config.yaml
+minimax:
+  api_key: 你的key
+```
+
+`aifd quota` 是 group 命令，默认查 MiniMax；未来 `aifd quota <provider>` 可加别的订阅。MiniMax key 永远不会出现在任何报错里（安全设计）。查询不消耗 prompt 额度。
+
+> best-effort：MiniMax 的 usage 端点未公开文档，若他们改了响应格式，命令会提示「update aifd」而不是崩。
+
 ### 通用 flag
 
 ```bash

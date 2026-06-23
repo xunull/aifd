@@ -7,6 +7,7 @@ import click
 from aifd import __version__
 
 from .ai import ai
+from .quota import quota
 from .vault import vault
 
 
@@ -21,4 +22,5 @@ def cli() -> None:
 
 
 cli.add_command(ai)
+cli.add_command(quota)
 cli.add_command(vault)

@@ -3,6 +3,53 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-06-23
+
+### Added
+
+#### `aifd quota` — MiniMax Coding Plan 5h 窗口剩余额度
+
+查 MiniMax Coding Plan 订阅当前 5 小时滚动窗口还剩多少额度，免得写代码写一半
+用超被卡。一个命令 `aifd quota` 看到「MiniMax 5h: 剩 99%，3h 后重置」。
+
+- 数据来源：MiniMax `coding_plan/remains` 端点（Bearer auth），spike 实测确认
+- key 独立配置：env `MINIMAX_API_KEY` > `~/.aifd/config.yaml` 的 `minimax:` 段
+  （和 `llm.api_key` 分开——后者是 reflect/habits 的 LLM key）
+- `aifd quota` 是 group with default：未来 `aifd quota <provider>` 可加别的订阅
+- 安全：MiniMax key 永不进 log/error/traceback（aifd 自己的 `vault scan` 会 flag
+  `Bearer <key>`，所以异常链用 `from None` 切断）
+- 渲染用剩余百分比 + server 给的重置倒计时；查询不消耗 prompt 额度
+
+新增依赖 `httpx`（已 via litellm 在依赖树，声明 direct 不增体积）。
+
+### Fixed
+
+- 版本号同步：`__init__.py` / `pyproject.toml` 从 0.9.0 跟上到 0.12.0
+  （v0.10 / v0.11 ship 时漏更新版本文件，本次补齐）。
+
+## [0.11.0] - 2026-06-15
+
+### Added
+
+#### Cursor provider
+
+`aifd ai session list` / `retro` / `vault cost` 现在覆盖 Cursor。Cursor 把会话
+（composer）存在 globalStorage、cwd 存在 workspaceStorage 两套不互引用的存储，
+provider 用 `workspaceIdentifier` hash 把两者 JOIN 起来拿 cwd（约 80% 覆盖真实
+会话），并按 bubble 存在性过滤空壳会话（globalStorage 的 composer 里只有约
+五分之一有真实对话内容）。读 live DB 用 `mode=ro` + 锁重试，无 cwd 的会话经
+stderr 计数可见。
+
+## [0.10.0] - 2026-06-12
+
+### Added
+
+#### OpenCode provider
+
+`aifd ai session list` / `retro` / `vault cost` 现在覆盖 OpenCode。读
+`~/.local/share/opencode/opencode.db`（SQLite），session / token 已支持；
+skill 调用与 question 暂返回空（OpenCode 无结构化标记）。
+
 ## [0.9.0] - 2026-06-07
 
 ### Added
