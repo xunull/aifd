@@ -4,6 +4,8 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/aifd.svg)](https://pypi.org/project/aifd/)
 
+[English](./README.en.md) | **简体中文**
+
 > 跨 Claude Code / Codex / OpenCode / Cursor 的 AI 编码历史浏览器 + secret 扫描 + LLM coach。
 > 把「我的目录 / 我用过的 skill / AI 问过我什么 / 我花了多少钱 / 我是什么类型的 AI 用户」这些问题，用一行命令回答。
 
