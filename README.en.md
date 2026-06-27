@@ -854,6 +854,24 @@ minimax:
 
 > best-effort: MiniMax's usage endpoint is undocumented; if they change the response format, the command prompts "update aifd" instead of crashing.
 
+### `aifd cosmos` — render your AI history as a force-directed galaxy (v0.13)
+
+Render your AI conversation history across all four tools as a glowing force-directed star map, output as a self-contained HTML (offline-viewable):
+
+```bash
+aifd cosmos                          # last 90 days, generate + open in browser
+aifd cosmos --since 30               # last 30 days
+aifd cosmos --output x.html --no-open
+```
+
+Each session is a star (radius = `event_count`, cool blue = vibe-coding, warm red = deep session), each project a hub it orbits. In the browser you can zoom, drag, and hover for session details.
+
+- **Privacy**: cwd shows basename only, and home paths inside titles are redacted to `~` — sharing a screenshot / the HTML never leaks your username or private project names
+- **Self-contained**: force-graph is inlined into the HTML, viewable offline, zero runtime network dependency
+- **Link model**: project hub nodes (sessions link to their hub), so even big projects don't blow up the edge count
+- `event_count` is not comparable across tools (each tool's jsonl event granularity differs); it's an in-tool heuristic only
+- Poster export is coming later (interactive map first)
+
 ### Common flags
 
 ```bash

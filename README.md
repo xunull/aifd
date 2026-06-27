@@ -853,6 +853,24 @@ minimax:
 
 > best-effort：MiniMax 的 usage 端点未公开文档，若他们改了响应格式，命令会提示「update aifd」而不是崩。
 
+### `aifd cosmos` — 把 AI 史变成力导向星系图（v0.13）
+
+把你跨四工具的 AI 对话史渲染成一张会发光的力导向星图，生成自包含 HTML（离线可看）：
+
+```bash
+aifd cosmos                          # 最近 90 天，生成 + 打开浏览器
+aifd cosmos --since 30               # 最近 30 天
+aifd cosmos --output x.html --no-open
+```
+
+每个 session 是一颗星（半径 = `event_count`，冷蓝 = vibe-coding、暖红 = 深聊），每个项目是它环绕的 hub 节点。浏览器里能缩放、拖拽、hover 看 session 详情。
+
+- **隐私**：cwd 只显 basename，title 里的 home 路径脱敏成 `~`——分享截图 / HTML 不泄漏用户名和私有项目名
+- **自包含**：force-graph 内联进 HTML，离线可看，零运行时网络依赖
+- **link 模型**：项目 hub 节点（session 连 hub），大项目也不会边爆炸
+- `event_count` 跨工具不可比（各家 jsonl 事件粒度不同），仅本工具内部指标
+- 海报导出后续做（当前先交互星图）
+
 ### 通用 flag
 
 ```bash

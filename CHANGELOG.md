@@ -3,6 +3,39 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-06-27
+
+### Added
+
+#### `aifd cosmos` — 把 AI 史渲染成力导向星系图
+
+`aifd cosmos` 把你跨四工具的 AI 对话史变成一张会发光的力导向星图：每个 session
+是一颗星（半径 = event_count，冷蓝 = vibe-coding、暖红 = 深聊），每个项目是它环绕
+的 hub 节点。生成自包含 HTML（内联 force-graph，离线可看），浏览器里能缩放、拖拽、
+hover 看 session 详情。
+
+```bash
+aifd cosmos                          # 最近 90 天，生成 + 打开浏览器
+aifd cosmos --since 30               # 最近 30 天
+aifd cosmos --output x.html --no-open
+```
+
+- 数据源：新增公共 `activity.iter_sessions_in(start, end, providers=None)`，从
+  reflection 的私有 helper 提取，reflect / habits / cosmos 三处共用
+- link 模型：项目 hub 节点（session 连 hub），O(n) 边，避免同 cwd 两两互连的
+  O(n²) 边爆炸
+- 隐私：cwd 只显 basename，session title 里的 home 路径脱敏成 `~`——自包含 HTML /
+  截图分享时不泄漏用户名 / 私有项目名
+- 安全：title 等用户内容两层 XSS 防护（html.escape + JSON `</` 转义）
+- node id 用 `(provider, session_id)` 复合 key，防跨工具碰撞
+- 内联 vendored force-graph 1.51.4（MIT），打进 wheel，零运行时网络依赖
+- event_count 跨工具不可比（各家 jsonl 事件粒度不同），UI 注明是本工具内部指标
+
+经 office-hours → plan-eng-review（含 Codex outside voice）→ 实现全流程。Codex
+review 抓到 link clique O(n²) + cwd 隐私两个 Claude review 漏的点。海报导出延后
+（force-graph 无 export API，devicePixelRatio 太脆，后续 spike）。新增 16 个数据层
+单测（hub 非 clique、色温、node id、basename、XSS 双层、home 脱敏、空 / 单 session）。
+
 ## [0.12.0] - 2026-06-23
 
 ### Added

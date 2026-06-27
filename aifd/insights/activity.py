@@ -208,6 +208,29 @@ def _iter_all_sessions(p: Provider) -> Iterable[Session]:
         yield from fn()
 
 
+def iter_sessions_in(
+    start: datetime,
+    end: datetime,
+    providers: Iterable[Provider] | None = None,
+) -> Iterable[Session]:
+    """Stream sessions whose started_at is in [start, end), across providers.
+
+    Public successor to the old `reflection._iter_sessions_in` (E1 from
+    /plan-eng-review): cosmos / reflect / habits all want "every session in a
+    window from every provider". `providers` defaults to the global registry;
+    pass an explicit list for tests or a future `--provider` filter. Sessions
+    with no started_at are skipped (they can't be placed on a timeline).
+    """
+    if providers is None:
+        providers = PROVIDERS
+    for p in providers:
+        for s in _iter_all_sessions(p):
+            if s.started_at is None:
+                continue
+            if start <= s.started_at < end:
+                yield s
+
+
 def _slice_by_provider(
     active_session_keys: set[tuple[str, str]], token_usages: list[TokenUsage]
 ) -> list[ProviderActivity]:

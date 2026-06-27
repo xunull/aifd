@@ -359,15 +359,6 @@ def collect_reflection_data(
 def _iter_sessions_in(
     start: datetime, end: datetime,
 ) -> Iterable[Session]:
-    """Stream sessions in the window from every provider.
-
-    Reuses activity._iter_all_sessions which handles provider feature
-    detection (`iter_all_sessions` attr-or-fallback).
-    """
-    from aifd.insights import activity as _act
-    for p in _act.PROVIDERS:  # type: ignore[attr-defined]
-        for s in _act._iter_all_sessions(p):
-            if s.started_at is None:
-                continue
-            if start <= s.started_at < end:
-                yield s
+    """Back-compat alias; real impl moved to activity.iter_sessions_in (E1)."""
+    from aifd.insights.activity import iter_sessions_in
+    return iter_sessions_in(start, end)
