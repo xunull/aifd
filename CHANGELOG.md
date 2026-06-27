@@ -3,6 +3,25 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.1] - 2026-06-27
+
+### Changed
+
+#### `aifd cosmos` 视觉打磨——从「散布的圆点」到「发光的星空」
+
+经 plan-design-review + plan-eng-review 双评审，给 cosmos 星图做了视觉打磨（截真图审，
+不是 mockup）。初评 5/10「像 force-graph 教科书 demo」，打磨到 ~8/10「我的 AI 宇宙」：
+
+- **辉光星点**：canvas `nodeCanvasObject` 自定义绘制，星点带 radial glow 光晕，
+  `globalCompositeOperation='lighter'` 让重叠的星互相提亮（廉价 bloom 辉映）；深聊
+  session 靠「亮」不靠「大」。从「实心圆点」变「发光的星」。
+- **破甜甜圈**：d3Force 加 `distanceMax` 限制远距排斥，星系不再被甩成空心大环，
+  中间有星填充、有疏密层次。
+- **HUD 可读**：左上角图例加半透明背景条，不再被星点遮挡。
+
+渲染栈维持 force-graph + 手写 canvas 2D（不引入 Three.js/PixiJS），基座的力布局 /
+交互 / 动画全复用。真要电影级 GPU bloom 再单独立项。
+
 ## [0.13.0] - 2026-06-27
 
 ### Added

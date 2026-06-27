@@ -196,8 +196,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <style>
   html, body {{ margin: 0; background: #05060a; color: #cdd3e0;
     font: 13px ui-monospace, monospace; overflow: hidden; }}
-  #hint {{ position: fixed; top: 10px; left: 12px; opacity: .65; z-index: 10;
-    pointer-events: none; }}
+  #hint {{ position: fixed; top: 10px; left: 12px; z-index: 10;
+    pointer-events: none; color: #aab2c5;
+    background: rgba(5,6,10,.72); padding: 5px 11px; border-radius: 7px; }}
   #graph {{ width: 100vw; height: 100vh; }}
 </style>
 </head>
@@ -210,6 +211,37 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 const DATA = {graph_json};
 const COOL = "{cool}", WARM = "{warm}", HUB = "{hub}";
 const el = document.getElementById('graph');
+// hex → rgba(8 位 hex alpha 在部分 canvas 下解析失败,用 rgba 最稳)
+function withAlpha(hex, a) {{
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${{(n >> 16) & 255}}, ${{(n >> 8) & 255}}, ${{n & 255}}, ${{a}})`;
+}}
+// 半径:深聊靠「亮」不靠「大」→ warm 半径克制；hub 大
+function nodeRadius(n) {{
+  return n.kind === 'hub' ? Math.max(2.5, Math.sqrt(n.count) * 1.8)
+                          : Math.max(1.1, Math.sqrt(n.events + 1) * 0.85);
+}}
+// V1 辉光星点:lighter 叠加(重叠星互相提亮)+ shadowBlur 柔光 + 多层 radialGradient
+function drawStar(n, ctx) {{
+  if (n.x == null || n.y == null) return;
+  const isHub = n.kind === 'hub';
+  const color = isHub ? HUB : (n.vibe ? COOL : WARM);
+  const r = nodeRadius(n);
+  const glowR = r * (isHub ? 3.2 : (n.vibe ? 1.8 : 2.4));  // warm 光晕略大 = 靠亮突出
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';   // 颜色相加,重叠处自然发光辉映
+  const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+  g.addColorStop(0, withAlpha(color, 0.5));
+  g.addColorStop(0.45, withAlpha(color, 0.14));
+  g.addColorStop(1, withAlpha(color, 0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(n.x, n.y, glowR, 0, 6.2832); ctx.fill();
+  ctx.shadowBlur = glowR * 0.45;
+  ctx.shadowColor = color;
+  ctx.fillStyle = isHub ? '#eef0ff' : color;  // hub 核心近白 = 最亮的星系核心
+  ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.2832); ctx.fill();
+  ctx.restore();
+}}
 const Graph = ForceGraph()(el)
   .backgroundColor('#05060a')
   .graphData(DATA)
@@ -217,12 +249,17 @@ const Graph = ForceGraph()(el)
   .nodeLabel(n => n.kind === 'hub'
      ? `${{n.project}} · ${{n.count}} sessions`
      : `${{n.label}} · ${{n.events}} events · ${{n.provider}}`)
-  .nodeVal(n => n.kind === 'hub' ? Math.max(4, Math.sqrt(n.count) * 3)
-                                 : Math.max(1.5, Math.sqrt(n.events + 1)))
-  .nodeColor(n => n.kind === 'hub' ? HUB : (n.vibe ? COOL : WARM))
-  .linkColor(() => 'rgba(120,130,160,0.25)')
+  .nodeCanvasObject((n, ctx) => drawStar(n, ctx))
+  .nodePointerAreaPaint((n, color, ctx) => {{
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(n.x, n.y, nodeRadius(n) + 2, 0, 6.2832); ctx.fill();
+  }})
+  .linkColor(() => 'rgba(120,130,160,0.16)')
   .linkWidth(0.5)
   .enableNodeDrag(true);
+// V2 破甜甜圈:保持正常 charge(近邻散开不聚团)+ distanceMax 限制远距排斥
+// (远处节点不互推,不被甩到外环)。distanceMax 才是破甜甜圈的正解,不是降强度。
+Graph.d3Force('charge').strength(-30).distanceMax(120);
 addEventListener('resize', () => Graph.width(innerWidth).height(innerHeight));
 </script>
 </body>
