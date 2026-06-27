@@ -160,3 +160,12 @@ def test_render_html_escapes_page_title():
     out = render_cosmos_html([_session()], page_title="<script>x</script>")
     assert "<title><script>" not in out
     assert "&lt;script&gt;" in out
+
+
+def test_render_html_perf_guard_no_shadowblur():
+    """canvas shadowBlur per-node 在节点重叠时(力布局初期全挤中心)高斯模糊病态:
+    单帧 ~5s,卡死整个浏览器(v0.13.1 的回归)。守卫——渲染输出绝不能含 shadowBlur,
+    且必须 warmupTicks 预热散开,避免初期 N 节点全挤中心的 overdraw。"""
+    out = render_cosmos_html([_session()])
+    assert "ctx.shadowBlur" not in out   # 卡死 Chrome 的根因(canvas shadow API),永不回归
+    assert "warmupTicks(100)" in out     # 我加的预热调用(库方法名不带值,精确测我的调用)

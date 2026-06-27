@@ -221,7 +221,8 @@ function nodeRadius(n) {{
   return n.kind === 'hub' ? Math.max(2.5, Math.sqrt(n.count) * 1.8)
                           : Math.max(1.1, Math.sqrt(n.events + 1) * 0.85);
 }}
-// V1 辉光星点:lighter 叠加(重叠星互相提亮)+ shadowBlur 柔光 + 多层 radialGradient
+// V1 辉光星点:lighter 叠加(重叠星互相提亮)+ 多层 radialGradient 光晕
+// 不用 shadowBlur:它是 GPU 病态路径,且光晕已由 gradient 提供。
 function drawStar(n, ctx) {{
   if (n.x == null || n.y == null) return;
   const isHub = n.kind === 'hub';
@@ -236,8 +237,6 @@ function drawStar(n, ctx) {{
   g.addColorStop(1, withAlpha(color, 0));
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(n.x, n.y, glowR, 0, 6.2832); ctx.fill();
-  ctx.shadowBlur = glowR * 0.45;
-  ctx.shadowColor = color;
   ctx.fillStyle = isHub ? '#eef0ff' : color;  // hub 核心近白 = 最亮的星系核心
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.2832); ctx.fill();
   ctx.restore();
@@ -256,7 +255,10 @@ const Graph = ForceGraph()(el)
   }})
   .linkColor(() => 'rgba(120,130,160,0.16)')
   .linkWidth(0.5)
-  .enableNodeDrag(true);
+  .enableNodeDrag(true)
+  .warmupTicks(100)     // 上屏前预热力布局,节点散开后再渲染——根治:
+                        // 否则初期 N 节点全挤中心,lighter 光晕 overdraw 把单帧拖到数秒,卡死浏览器
+  .cooldownTicks(160);  // 限制屏上力布局 tick 数,更快静止省持续重绘
 // V2 破甜甜圈:保持正常 charge(近邻散开不聚团)+ distanceMax 限制远距排斥
 // (远处节点不互推,不被甩到外环)。distanceMax 才是破甜甜圈的正解,不是降强度。
 Graph.d3Force('charge').strength(-30).distanceMax(120);

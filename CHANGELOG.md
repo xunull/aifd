@@ -3,6 +3,27 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.2] - 2026-06-27
+
+### Fixed
+
+#### `aifd cosmos` 打开即卡死整个浏览器（v0.13.1 回归）
+
+v0.13.1 的辉光星点给每个节点用了 canvas `ctx.shadowBlur`。数据量大时（默认 90 天约
+1100 session），force-graph 力布局**初期所有节点挤在中心重叠**，shadowBlur 的高斯模糊
+在重叠的光晕上反复运算，单帧高达约 5 秒，主线程锁死，整个 Chrome 卡死。
+
+根因靠浏览器内 benchmark 定位：同样 1106 节点，**分散**布局 shadowBlur 只 1.9x 开销
+（所以第一版 benchmark 用随机坐标没发现），但**全挤中心**（力布局初期的真实场景）是
+5072ms/帧；去掉 shadowBlur 后同场景 1.6ms，降了约 3000x。教训：性能 bug 要测真实病态
+场景（节点重叠），不是合成的理想场景（分散）。
+
+修复：
+- 去掉 `ctx.shadowBlur`，光晕改由 radialGradient 提供（视觉几乎无差）
+- 加 `warmupTicks(100)`：上屏前预热力布局，节点散开后再渲染，避免初期全挤中心的 overdraw
+- 加 `cooldownTicks(160)`：限制屏上力布局 tick 数，更快静止省持续重绘
+- 回归测试守卫 `ctx.shadowBlur` 永不回归
+
 ## [0.13.1] - 2026-06-27
 
 ### Changed
