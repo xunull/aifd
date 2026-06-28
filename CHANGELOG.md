@@ -3,6 +3,34 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/) and this
 project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-06-28
+
+### Added
+
+#### `aifd cosmos` 默认升级为 2.5D — 鼠标拖拽旋转的立体星图
+
+`aifd cosmos` 现在默认渲染 **2.5D 视图**：星图活在伪 3D 空间里，**鼠标按住拖拽即可绕轴
+旋转**（左右 + 上下），近大远小 + 景深，松手缓慢自转。canvas 实现，66KB 自包含、离线可看、
+到处能跑（不需 WebGL）。颜色/大小编码不变（冷蓝 vibe / 暖红 深聊 / 紫 项目），hover 看详情。
+
+```bash
+aifd cosmos          # 2.5D 可旋转星图（新默认）
+aifd cosmos --flat   # 原来的 2D force-graph（保留不删）
+```
+
+### Changed
+
+- `aifd cosmos` 默认从 2D force-graph 改为 2.5D。原 2D 版完整保留（render_cosmos_html +
+  force-graph + 17 个测试不动），用 `--flat` 触发。
+
+### 设计过程（spike 实证）
+
+这版背后是 /design-review + /plan-eng-review + 三方案 spike 对比（2D / 2.5D / Three.js+bloom）。
+真 3D（Three+bloom）被实证否决：bloom 在密集数据上必然糊（调了 6 版都白/雾）、WebGL 在受限
+环境黑屏、600KB CDN。2.5D 命中真实诉求「转动立体星图」——旋转是三角函数 + 透视投影，不是 GPU
+特权，canvas 上千点 CPU 算毫秒级。两个工程教训钉进 design doc：① 截图测不出持续运行（卡死/白屏
+都栽这），ship 前真实浏览器跑满 15 秒+；② 先问诉求本质（要交互不是要质感），别被表面词带跑。
+
 ## [0.13.2] - 2026-06-27
 
 ### Fixed

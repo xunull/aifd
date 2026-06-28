@@ -1,3 +1,4 @@
-"""aifd — list AI coding sessions for the current directory across Claude / Codex / Cursor / OpenCode."""
+"""aifd — list AI coding sessions for the current directory across
+Claude / Codex / Cursor / OpenCode."""
 
-__version__ = "0.13.2"
+__version__ = "0.14.0"

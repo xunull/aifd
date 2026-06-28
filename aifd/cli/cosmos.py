@@ -16,6 +16,7 @@ import click
 
 from aifd.insights.activity import iter_sessions_in
 from aifd.render_cosmos import render_cosmos_html
+from aifd.render_cosmos_25d import render_cosmos_25d_html
 
 _DEFAULT_DAYS = 90
 _DEFAULT_OUTPUT = "aifd-cosmos.html"
@@ -43,11 +44,19 @@ _DEFAULT_OUTPUT = "aifd-cosmos.html"
     default=True,
     help="Open the generated HTML in your browser (default: open).",
 )
-def cosmos(since_days: int, output: Path, open_browser: bool) -> None:
+@click.option(
+    "--flat",
+    "flat",
+    is_flag=True,
+    default=False,
+    help="Render the original 2D force-graph instead of the default 2.5D rotatable view.",
+)
+def cosmos(since_days: int, output: Path, open_browser: bool, flat: bool) -> None:
     """Render your AI session history (last N days) as an interactive star galaxy.
 
-    Each session is a star (radius = event count, cool = vibe-coding), each project
-    a hub it orbits. Output is a self-contained HTML you can open offline.
+    Default is the 2.5D view: drag to rotate the star cloud in pseudo-3D. Each session
+    is a star (radius = event count, cool = vibe-coding), each project a hub it orbits.
+    `--flat` renders the original 2D force-graph. Output is self-contained HTML.
     """
     # Same tz convention as `aifd ai habits/reflect` (aware, local) so the
     # started_at comparison inside iter_sessions_in never mixes naive/aware.
@@ -59,7 +68,8 @@ def cosmos(since_days: int, output: Path, open_browser: bool) -> None:
             f"No sessions found in the last {since_days} days. "
             "Run some AI coding sessions first, or widen --since."
         )
-    output.write_text(render_cosmos_html(sessions), encoding="utf-8")
+    render = render_cosmos_html if flat else render_cosmos_25d_html
+    output.write_text(render(sessions), encoding="utf-8")
     click.echo(f"✨ {len(sessions)} sessions → {output}")
     if open_browser:
         webbrowser.open(output.resolve().as_uri())

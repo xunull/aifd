@@ -1,6 +1,6 @@
 [project]
 name = "aifd"
-version = "0.13.2"
+version = "0.14.0"
 description = "List AI coding sessions (Claude Code, Codex, Cursor, OpenCode) for the current directory across all your AI tools"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -124,6 +124,8 @@ select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 "aifd/cli/quota.py" = ["RUF001", "RUF002", "RUF003"]
 # `aifd cosmos` HTML hint has a Chinese legend with fullwidth punctuation.
 "aifd/render_cosmos.py" = ["RUF001", "RUF002", "RUF003"]
+# `aifd cosmos` 2.5D module: Chinese docstring/comments + HTML hint.
+"aifd/render_cosmos_25d.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"
