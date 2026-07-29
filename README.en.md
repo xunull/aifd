@@ -12,18 +12,28 @@
 Every AI coding tool stores its history in its own private format. `aifd` aggregates data from every tool **from your point of view**: by directory, by skill, by question, by spend, by behavior pattern -- not by tool.
 
 ```text
-查 → 扫 → 算 → 盯 → 反思
-session / skill / question  →  secret / PII  →  cost / token  →  实时 daemon  →  AI Coach
+query → compute → scan → watch → reflect → see
+session / skill / question → cost / token → secret / PII → live daemon → AI Coach → star map
 ```
+
+**Three facts** that decide whether this is for you:
+
+1. **Read-only, offline, local.** aifd never writes to your AI tools' data directories, and needs no network -- unless you explicitly run `aifd ai reflect` / `habits` (calls an LLM) or `aifd quota` (checks your subscription).
+2. **Full secret values never appear in any output.** Scan results, JSON, logs, webhook payloads, LLM prompts -- all carry redacted snippets only (first 4 + last 4 chars).
+3. **Adding a new AI tool = one file + one line of registration.** See [Contribute a new provider](#contribute-a-new-provider).
+
+Current version **v0.14.0**, Python 3.12+, 744 tests running across 3 operating systems × 2 Python versions.
 
 ---
 
 ## 📑 Table of Contents
 
-### ✨ [Highlights (7 screenshots)](#-highlights-gif-style)
+### ✨ [Highlights (8 screenshots)](#-highlights-gif-style)
 
 ### 🚀 [Quick Start](#-quick-start)
 - [Install](#-install) · [One-minute try](#-one-minute-try)
+
+### 📋 [Full command tree](#-full-command-tree)
 
 ### 🔍 [Query - list your history](#-query---list-your-history)
 | Command | One-liner | Version |
@@ -56,15 +66,34 @@ session / skill / question  →  secret / PII  →  cost / token  →  实时 da
 | [`aifd ai reflect`](#aifd-ai-reflect---ai-coach-let-the-llm-see-how-you-use-ai) | Weekly, have the LLM write an 80-150 word meta-cognitive reflection | v0.8 |
 | [`aifd ai habits`](#aifd-ai-habits---long-term-ai-behavior-persona) | 60-90 day long-term behavior persona (what kind of AI user are you) | v0.9 |
 
+### 🌌 [See - turn your AI history into a star map](#-see---turn-your-ai-history-into-a-star-map)
+| Command | One-liner | Version |
+|---|---|---|
+| [`aifd cosmos`](#aifd-cosmos---a-drag-to-rotate-25d-star-map) | Generate a drag-to-rotate 2.5D star map (self-contained HTML, works offline) | v0.13 → v0.14 |
+
+### 📉 [Quota - subscription usage](#-quota---subscription-usage)
+| Command | One-liner | Version |
+|---|---|---|
+| [`aifd quota`](#aifd-quota---minimax-coding-plan-5h-quota) | MiniMax Coding Plan 5-hour rolling-window remaining quota | v0.12 |
+
 ### 🛠️ [Configuration and runtime](#%EF%B8%8F-configuration-and-runtime)
-- [LLM config (`~/.aifd/config.yaml`)](#llm-config-aifdconfigyaml) · [Common flags](#common-flags) · [Current support matrix](#current-support-matrix)
+- [Full `~/.aifd/config.yaml` schema](#full-aifdconfigyaml-schema) · [Config precedence](#config-precedence) · [What aifd writes to disk](#what-aifd-writes-to-disk) · [Common flags](#common-flags) · [Current support matrix](#current-support-matrix)
+
+### 🔒 [Data sources and privacy](#-data-sources-and-privacy)
+- [What files aifd reads](#what-files-aifd-reads) · [Privacy invariants](#privacy-invariants) · [When aifd touches the network](#when-aifd-touches-the-network)
+
+### ❓ [Troubleshooting](#-troubleshooting)
 
 ### 🏗️ [Architecture and contributing](#%EF%B8%8F-architecture-and-contributing)
-- [Architecture](#architecture) · [Contribute a new provider](#contribute-a-new-provider) · [Development](#development) · [The editable-install dep trap](#the-editable-install-dep-trap)
+- [Architecture](#architecture) · [Contribute a new provider](#contribute-a-new-provider) · [Development](#development) · [Tests and CI](#tests-and-ci) · [The editable-install dep trap](#the-editable-install-dep-trap)
+
+### 🧭 [Version timeline](#-version-timeline)
 
 ---
 
 ## ✨ Highlights (gif style)
+
+Eight commands, eight different questions. Every output below is real (numbers scrubbed).
 
 **1. List sessions by directory (v0.1)**
 
@@ -172,6 +201,28 @@ $ aifd ai habits
 
 `reflect` answers "how was this week"; `habits` answers "**what kind of AI user am I**". LLM routing goes through [LiteLLM](https://github.com/BerriAI/litellm) across 100+ providers (DeepSeek / Zhipu / Tongyi / Ark / Anthropic / OpenAI / Gemini / ollama / vLLM / Azure). See [`aifd ai reflect`](#aifd-ai-reflect---ai-coach-let-the-llm-see-how-you-use-ai) / [`aifd ai habits`](#aifd-ai-habits---long-term-ai-behavior-persona).
 
+**8. Your AI universe - a drag-to-rotate star map (v0.13 → v0.14)**
+
+```text
+$ aifd cosmos
+✨ 1106 sessions → aifd-cosmos.html
+```
+
+```text
+              ·  ✦        ·
+        ✦   ·      ●aifd        ·   ✦          ← purple hub = a project
+   ·        ✦   ·   ·  ✦   ·        ·
+      ●gstack   ·  ✦  ·      ●dotfiles  ✦      ← blue star = vibe-coding
+   ✦     ·   ✦      ·    ✦      ·   ·          ← red star = deep session
+        ·       ✦        ·      ✦
+   [ hold and drag → the cloud rotates around its axis ]
+```
+
+Every session is a star (radius = event count, cool blue = vibe-coding, warm red = deep session); every project is a hub it orbits.
+**Hold the mouse and drag to rotate** (2.5D is the v0.14 default; `--flat` returns to the v0.13 2D force-graph).
+Output is 66KB of self-contained HTML -- works offline, zero network calls, and cwd shows only the basename so sharing a screenshot leaks no project names.
+See [`aifd cosmos`](#aifd-cosmos---a-drag-to-rotate-25d-star-map).
+
 ---
 
 ## 🚀 Quick Start
@@ -208,15 +259,69 @@ aifd vault scan
 
 # 4. Review AskUserQuestion history + recommended hit rate
 aifd ai question list --cwd --limit 10
+
+# 5. Render your AI history as a drag-to-rotate star map
+aifd cosmos
 ```
 
-To use the **AI Coach (reflect / habits)** you also need an LLM API key -- see [LLM config](#llm-config-aifdconfigyaml).
+All five need **zero configuration and no API key** -- they read the AI tool data already on your machine.
+
+The **AI Coach (`reflect` / `habits`)** is the only thing that needs an LLM API key; see [Full `~/.aifd/config.yaml` schema](#full-aifdconfigyaml-schema).
+`aifd quota` needs a MiniMax coding-plan key (a different credential from the LLM key).
+
+**None of them printed anything?** Most likely aifd doesn't support the tool you use yet, or the current directory has no history. Jump to [Troubleshooting](#-troubleshooting).
+
+---
+
+## 📋 Full command tree
+
+Every command in v0.14. Four top-level groups: `ai` (cross-tool query and reflection), `vault` (data sovereignty), `cosmos` (visualization), `quota` (subscription usage).
+
+```text
+aifd
+├── ai                                  operations across AI tools
+│   ├── session list                    list sessions for the current dir       v0.1
+│   ├── skill list                      cross-tool skill usage stats            v0.2
+│   ├── question list                   review AskUserQuestion history (+HTML)  v0.3
+│   ├── claude skill list               list installed Claude skills            v0.2.1
+│   ├── codex skill list                list installed Codex skills             v0.2.1
+│   ├── today                           today's activity summary                v0.5
+│   ├── weekly                          rolling 7-day window                    v0.5
+│   ├── monthly                         current-month activity summary          v0.5
+│   ├── retro --since/--until           custom-range retrospective              v0.5
+│   ├── reflect                         weekly meta-cognitive reflection (LLM)  v0.8
+│   └── habits                          60-90 day behavior persona (LLM)        v0.9
+│
+├── vault                               data sovereignty: scan / cost / watch
+│   ├── scan                            one-shot secret / PII scan              v0.4
+│   ├── cost                            token usage + USD estimate              v0.4
+│   └── watch                           real-time secret detection daemon       v0.6
+│       ├── install / uninstall         register / remove launchd autostart (macOS)
+│       ├── start / stop / status       start-stop + pid / port / catches today
+│       ├── tail                        follow ~/.aifd/watch.log
+│       ├── events                      persistent finding event stream         v0.7
+│       │   ├── list / show             list / inspect one (with rotation playbook)
+│       │   ├── ack / mute / resolve    state-machine transitions
+│       │   └── export                  export NDJSON
+│       └── webhooks                    external alerting integration           v0.7
+│           ├── add / delete / list     create, remove, list
+│           ├── test                    send a test event (must pass to enable)
+│           ├── enable / disable        toggle one webhook
+│           └── list-dead-letter        failed-delivery queue + retry-dead-letter
+│
+├── cosmos                              AI history → rotatable 2.5D star map    v0.13 → v0.14
+│
+└── quota                               subscription usage (defaults to MiniMax) v0.12
+    └── minimax                         MiniMax Coding Plan 5h window
+```
+
+`--help` works at every level: `aifd vault watch events --help`.
 
 ---
 
 ## 📚 Full command reference
 
-Below, commands are grouped into four buckets: **query → compute → scan → reflect**. Each section opens with a one-liner + when to use it, followed by detailed flags and examples.
+Below, commands are grouped into six buckets: **query → compute → scan → reflect → see → quota**. Each section opens with a one-liner + when to use it, followed by detailed flags and examples.
 
 ---
 
@@ -326,7 +431,7 @@ The footer at the bottom shows:
 
 #### Tool support
 
-Claude Code only. Codex's `agent_message` and OpenCode's messages are all free text with no structured "ask the user" event -- so `--provider codex` / `--provider opencode` always returns empty. Extending to this kind of plain-text questioning requires heuristic extraction, which introduces noise, so the roadmap choice is **precision first**. For the detailed reasoning see [docs/question-extraction.md](./docs/question-extraction.md) and [TODOS.md](./TODOS.md).
+Claude Code only. Codex's `agent_message` and the OpenCode / Cursor messages are all free text with no structured "ask the user" event -- so `--provider codex` / `--provider opencode` / `--provider cursor` always returns empty (empty, not an error). Extending to this kind of plain-text questioning requires heuristic extraction, which introduces noise, so the roadmap choice is **precision first**. For the detailed reasoning see [`docs/question-extraction.md`](./docs/question-extraction.md) and [TODOS.md](./TODOS.md).
 
 ### `aifd ai session list` - list sessions by directory
 
@@ -343,9 +448,22 @@ aifd ai session list --json | jq '.[] | .session_id'
 # filter by provider
 aifd ai session list --provider claude
 aifd ai session list --provider codex
+aifd ai session list --provider opencode
+aifd ai session list --provider cursor
 ```
 
-By default it **exactly matches** the current directory. Recursive scanning (`-r`) is on the roadmap.
+| Column | Meaning |
+|---|---|
+| **Provider** | Which AI tool |
+| **Session** | Session id prefix (short enough to read, long enough not to collide) |
+| **Started** | Relative start time |
+| **Events** | Event count for that session. **Not comparable across tools** -- each vendor's jsonl has different event granularity |
+| **Title** | Auto-extracted conversation title |
+| **Source** | Which file the data came from (abbreviated) |
+
+By default it **exactly matches** the current directory and does not recurse into subdirectories. Recursive scanning (`-r`) is on the roadmap. To look across directories, use `aifd ai skill list` (global by default) or `aifd ai weekly`.
+
+All four providers support this command, but Cursor has a known ~80% cwd mapping rate -- see [Troubleshooting](#-troubleshooting).
 
 ### `aifd ai skill list` - cross-tool skill usage stats
 
@@ -471,7 +589,29 @@ aifd vault scan --no-default-roots --root /path/to/scan
 
 **Safety guarantee**: the full secret value never appears in output / JSON / logs. The `SensitiveMatch` dataclass only stores a redacted snippet (first 4 + last 4 chars). You can paste it straight to a colleague for debugging without leaking the real secret.
 
-Detection support: Anthropic / OpenAI / GitHub PAT / AWS access key / Slack token / JWT / email / high-entropy strings. For the detailed mechanics see [docs/vault.md](./docs/vault.md).
+**Detectors and confidence**
+
+| Category | Matches | Confidence |
+|---|---|---|
+| `anthropic_key` | `sk-ant-…` | 10 |
+| `openai_key` | `sk-…` / `sk-proj-…` | 10 |
+| `github_pat` | `ghp_…` | 10 |
+| `github_fine_grained_pat` | `github_pat_…` | 10 |
+| `github_app_token` | `ghs_…` | 10 |
+| `aws_access_key` | `AKIA…` | 9 |
+| `slack_token` | `xoxb/xoxa/xoxp/xoxr/xoxs-…` | 9 |
+| `jwt` | three-part `eyJ….….…` | 8 |
+| `bearer_token` | `Bearer <20+ chars>` | 7 |
+| `email` | Email addresses | 7 |
+| `high_entropy` | High-entropy strings (only with `--min-confidence 4`) | 4 |
+
+The default threshold is **7**, so only the ten regex detectors above fire. Entropy detection has to be opted into by lowering the threshold, because it is noisy on real data (base64 fragments, hashes, UUIDs).
+
+False-positive suppressors drop matches that clearly aren't leaks: escape prefixes, reserved domains (`example.com` and friends), `noreply`-style local parts, and placeholder email domains.
+
+**Performance**: a cheap substring pass first decides whether a line could match any vendor prefix at all; if not, the whole 10-detector regex loop is skipped. On 260K lines of real jsonl only 8.2% contain any vendor prefix, which cuts 92% of detector work.
+
+For the mechanics, suppression rules, and safety invariants see [`docs/vault.md`](./docs/vault.md) and [`docs/secret-scan.md`](./docs/secret-scan.md).
 
 ### `aifd vault cost` - estimate token usage + USD spend
 
@@ -598,9 +738,12 @@ Features:
 
 - **State machine** - `new` / `acknowledged` / `resolved` / `muted` (24h or permanent); after `resolved`, reappearance auto re-opens
 - **Same secret across files = same issue** - fingerprint hashed by `category + redacted_snippet`
-- **Rotation playbook library** - 8 core vendors (openai / anthropic / github / aws / slack / jwt / gcp...) + a generic fallback; bilingual en + zh; with vendor dashboard links + steps
+- **Rotation playbook library** - 11 secret classes (`openai_key` / `anthropic_key` / `github_pat` / `github_oauth` / `aws_access_key` / `aws_secret` / `slack_token` / `jwt` / `gcp_service_account` / `email` / `high_entropy`) + a generic fallback; bilingual en + zh; each carries a vendor dashboard link, revocation steps, and a severity rating
+- **Web UI** - the daemon serves a single-page SPA bound to `127.0.0.1` only; clicking a notification jumps straight to that finding highlighted in its conversation context
 
-See [`docs/vault-events.md`](./docs/vault-events.md).
+`aifd vault watch events show <fingerprint>` prints the rotation playbook alongside the finding -- so after a leak you don't have to go hunting through vendor docs for "how do I revoke this key".
+
+See [`docs/vault-events.md`](./docs/vault-events.md) and [`docs/vault-events-integrations.md`](./docs/vault-events-integrations.md).
 
 ### `aifd vault watch webhooks` - external alerting integration
 
@@ -684,7 +827,7 @@ aifd ai reflect --model openai/qwen2.5 --api-base https://vllm.internal/v1
 # Or set llm.model / llm.api_base in ~/.aifd/config.yaml
 ```
 
-**The full `~/.aifd/config.yaml` schema** (auto-generated on the first `aifd ai reflect` run, with permissions auto `chmod 600`):
+**Config file** (the first `aifd ai reflect` run auto-generates `~/.aifd/config.yaml`, permissions auto `chmod 600`):
 
 ```yaml
 llm:
@@ -701,6 +844,8 @@ reflect:
   default_lang: zh           # en | zh
   include_questions: false   # true = feed the question summary to the LLM (still does not send the original text)
 ```
+
+For the complete schema including `habits:` and `minimax:`, see [Full `~/.aifd/config.yaml` schema](#full-aifdconfigyaml-schema).
 
 The yaml form for each provider:
 
@@ -814,17 +959,79 @@ habits:
 
 ---
 
-## 🛠️ Configuration and runtime
+## 🌌 See - turn your AI history into a star map
 
-### LLM config (`~/.aifd/config.yaml`)
+### `aifd cosmos` - a drag-to-rotate 2.5D star map
 
-Both `aifd ai reflect` and `aifd ai habits` need an LLM API key. For the config location and schema, see the "full `~/.aifd/config.yaml` schema" subsection in the [`aifd ai reflect`](#aifd-ai-reflect---ai-coach-let-the-llm-see-how-you-use-ai) section.
+> **When to use:** You want to see the shape of your last few months with AI at a glance -- which projects carried the load, which were one-offs, how deep sessions and vibe-coding split. Or you just want a picture worth sharing.
+> **Version:** v0.13 (2D force-graph) → **v0.14 (rotatable 2.5D, new default)**
 
-**Priority:** `AIFD_LLM_*` env > provider-native env (`DEEPSEEK_API_KEY` / `ZHIPUAI_API_KEY` / ...) > `~/.aifd/config.yaml` > default (`deepseek/deepseek-chat`).
+```bash
+aifd cosmos                            # last 90 days, generate + auto-open browser
+aifd cosmos --since 30                 # last 30 days
+aifd cosmos --since 365                # last year
+aifd cosmos --output ~/my-cosmos.html  # custom output path
+aifd cosmos --no-open                  # generate only (CI / remote machines)
+aifd cosmos --flat                     # back to the v0.13 2D force-graph
+```
 
-### `aifd quota` - MiniMax Coding Plan 5h quota (v0.12)
+Output:
 
-When you're coding on a MiniMax Coding Plan subscription, check how much of the current 5-hour rolling window you have left at any time, so you don't get cut off mid-task by running over:
+```text
+✨ 1106 sessions → aifd-cosmos.html
+```
+
+**Flag reference**
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--since N` | `90` | Include only sessions started in the last N days (min 1) |
+| `--output PATH` | `aifd-cosmos.html` | HTML output path |
+| `--open` / `--no-open` | `--open` | Whether to open a browser after generating |
+| `--flat` | off | Render the v0.13 2D force-graph instead of the default 2.5D |
+
+**Visual encoding**
+
+| Element | Meaning |
+|---|---|
+| Star radius | That session's event count (bigger = more interaction) |
+| Cool blue | Vibe-coding (short session, event count under the threshold) |
+| Warm red | Deep session (long session) |
+| Purple hub | A project directory; its sessions orbit it |
+| Drag | Rotate the whole cloud around its axis (horizontal + vertical), with perspective and depth |
+| Hover | Show that session's provider / title / event count |
+
+**2.5D vs 2D (`--flat`)**
+
+| | Default 2.5D (v0.14) | `--flat` 2D (v0.13) |
+|---|---|---|
+| Interaction | Drag to rotate + slow auto-spin | Force layout, zoom, drag nodes |
+| Rendering | Hand-written canvas 2D + CPU trig rotation | vendored force-graph 1.51.4 (MIT, inlined) |
+| Dependencies | Zero vendored lib, no WebGL needed | Inlined force-graph |
+| Good for | The "my AI universe" feel, screenshots | Reading topology between projects |
+
+v0.14 is **2.5D rather than true 3D** for measured reasons: a spike showed real 3D (Three.js + bloom) inevitably smears on dense data (six passes all came out washed out or foggy), WebGL blanks out in locked-down environments, and it costs 600KB of CDN. What people actually wanted was "a solid thing I can rotate" -- and rotation is trigonometry plus perspective projection, not a GPU privilege. A thousand points on canvas is milliseconds of CPU.
+
+**Design constraints**
+
+- **Privacy**: cwd shows basename only, and home paths inside session titles are redacted to `~` -- sharing a screenshot or the HTML never leaks your username or private project names
+- **Self-contained**: all JS is inlined into the HTML (~66KB), viewable offline, zero runtime network dependency
+- **Two layers of XSS protection**: user content goes through `html.escape()` plus `</` escaping inside the JSON blob
+- **Link model**: project hub nodes (sessions link to their hub rather than to each other), so edges are O(n) not O(n²) -- a project with hundreds of sessions doesn't explode
+- **Node ids** use a composite `(provider, session_id)` key so ids can't collide across tools
+- `event_count` is **not comparable across tools** (each vendor's jsonl event granularity differs); it's an aifd-internal relative measure
+- Poster / PNG export isn't built yet (force-graph has no export API and `devicePixelRatio` is too fragile) -- a later spike
+
+**Nothing rendered?** When no session falls inside the window, `aifd cosmos` fails with a clear message telling you to widen `--since`, instead of writing a blank HTML.
+
+---
+
+## 📉 Quota - subscription usage
+
+### `aifd quota` - MiniMax Coding Plan 5h quota
+
+> **When to use:** You're coding on a MiniMax Coding Plan subscription and want to check how much of the current 5-hour rolling window is left, so you don't get cut off mid-task.
+> **Version:** v0.12
 
 ```bash
 aifd quota            # defaults to MiniMax
@@ -836,9 +1043,9 @@ Output:
 ```text
 MiniMax 5h: 剩 99%，3h27m 后重置
 ```
-*(the CLI prints in Chinese)*
+*(the CLI prints this line in Chinese)*
 
-Configure the key (separate from the LLM key -- this is your coding-plan subscription key, not the reflect/habits LLM key):
+Configuring the key -- **this is not the LLM key**. `llm.api_key` is the model key powering `reflect` / `habits` (DeepSeek by default); this is your MiniMax coding-plan subscription credential, usually a completely different one. aifd never falls back to `llm.api_key`:
 
 ```bash
 export MINIMAX_API_KEY=your-key           # env takes priority
@@ -850,51 +1057,223 @@ minimax:
   api_key: your-key
 ```
 
-`aifd quota` is a group command that defaults to MiniMax; in the future `aifd quota <provider>` can add other subscriptions. The MiniMax key never appears in any error message (safety by design). The query does not consume your prompt quota.
+**Safety by design**: the MiniMax key is a Bearer credential, built into the `Authorization` header only at the call site. Every error path uses `raise ... from None` to cut the exception chain, because httpx's original exception can carry the full request (including the Bearer key). The result: the key never reaches an error message, traceback, or log -- and note that aifd's own `vault scan` lists `Bearer <key>` as a secret pattern.
 
-> best-effort: MiniMax's usage endpoint is undocumented; if they change the response format, the command prompts "update aifd" instead of crashing.
+**Other behavior**
 
-### `aifd cosmos` — render your AI history as a force-directed galaxy (v0.13)
+- The query does not consume your prompt quota
+- A valid key with no active plan gets a clear "No active MiniMax Coding Plan" message
+- The row is selected by `model_name == "general"`, never by array index (`model_remains[]` order isn't guaranteed, so taking `[0]` could hand you the video window)
+- The countdown uses the server-provided `remains_time`, not your local clock, so clock skew can't corrupt the reading
 
-Render your AI conversation history across all four tools as a glowing force-directed star map, output as a self-contained HTML (offline-viewable):
+> best-effort: MiniMax's usage endpoint is undocumented. If they change the response format, the command says "update aifd" instead of raising a stack trace.
 
-```bash
-aifd cosmos                          # last 90 days, generate + open in browser
-aifd cosmos --since 30               # last 30 days
-aifd cosmos --output x.html --no-open
+---
+
+## 🛠️ Configuration and runtime
+
+### Full `~/.aifd/config.yaml` schema
+
+Only `aifd ai reflect` / `aifd ai habits` / `aifd quota` need configuration. Everything else is zero-config.
+
+The first run of `aifd ai reflect` generates a commented template and `chmod 600`s it. If the file's permissions are too open (group / other readable), aifd warns but does not block.
+
+```yaml
+llm:
+  # LiteLLM 'provider/model' form -- switching providers is this one line
+  model: deepseek/deepseek-chat
+  # API key. Leave empty to let LiteLLM read the provider's native env var
+  # (DEEPSEEK_API_KEY / ZHIPUAI_API_KEY / DASHSCOPE_API_KEY / ARK_API_KEY /
+  #  ANTHROPIC_API_KEY / OPENAI_API_KEY / MOONSHOT_API_KEY / GROQ_API_KEY ...)
+  api_key: sk-xxxxxxxxx
+  # Fill in for self-hosted / proxy / ollama / Azure; leave empty for hosted providers
+  api_base:
+
+reflect:
+  default_lang: zh           # en | zh, output language for `aifd ai reflect`
+  include_questions: false   # true = feed question summaries to the LLM (still never raw text)
+
+habits:
+  default_days: 90           # default analysis window for `aifd ai habits`; < 1 resets to 90
+
+minimax:
+  # MiniMax Coding Plan key used by `aifd quota`.
+  # A separate credential from llm.api_key above -- aifd never cross-falls-back.
+  api_key:
 ```
 
-Each session is a star (radius = `event_count`, cool blue = vibe-coding, warm red = deep session), each project a hub it orbits. In the browser you can zoom, drag, and hover for session details.
+**Fault tolerance**: file missing → all defaults. YAML fails to parse → warn + defaults, no crash. A section that isn't a mapping → that section falls back to defaults.
 
-- **Privacy**: cwd shows basename only, and home paths inside titles are redacted to `~` — sharing a screenshot / the HTML never leaks your username or private project names
-- **Self-contained**: force-graph is inlined into the HTML, viewable offline, zero runtime network dependency
-- **Link model**: project hub nodes (sessions link to their hub), so even big projects don't blow up the edge count
-- `event_count` is not comparable across tools (each tool's jsonl event granularity differs); it's an in-tool heuristic only
-- Poster export is coming later (interactive map first)
+### Config precedence
+
+| Setting | Precedence (left wins) |
+|---|---|
+| LLM key | `AIFD_LLM_API_KEY` → `DEEPSEEK_API_KEY` (v0.8 compat) → `llm.api_key` |
+| LLM model | `AIFD_LLM_MODEL` → `llm.model` → `deepseek/deepseek-chat` |
+| LLM api_base | `AIFD_LLM_API_BASE` → `llm.api_base` → provider default endpoint |
+| MiniMax key | `MINIMAX_API_KEY` → `minimax.api_key` (**never** falls back to `llm.api_key`) |
+| Provider-native keys | Discovered by LiteLLM itself when `llm.api_key` is empty (`ZHIPUAI_API_KEY` etc.) |
+
+Command-line flags (`--model` / `--api-base` / `--lang` / `--since`) beat every source above, for that run only.
+
+aifd deliberately does **not** shadow provider-native env vars -- LiteLLM discovers them when `api_key` is `None`, and if aifd grabbed them first you could no longer switch providers by swapping an env var.
+
+### What aifd writes to disk
+
+All aifd state lives under `~/.aifd/`. **aifd never writes to your AI tools' data directories** -- `~/.claude/`, `~/.codex/` and friends are opened read-only.
+
+| Path | Written by | Contents |
+|---|---|---|
+| `~/.aifd/config.yaml` | You (template generated by aifd on first run) | LLM / reflect / habits / minimax config, `chmod 600` |
+| `~/.aifd/webhooks.yaml` | You | Targets for `vault watch webhooks` |
+| `~/.aifd/watch-state.json` | daemon | Per-file scan progress + daily catch counters. **Stores category + redacted snippet only** |
+| `~/.aifd/findings.db` | daemon | SQLite persistent finding event stream (v0.7) |
+| `~/.aifd/watch.pid` / `watch.port` | daemon | pid + HTTP port; `flock` prevents double-start |
+| `~/.aifd/watch.log` | daemon | stdout / stderr when running in the background |
+| `~/Library/LaunchAgents/*.plist` | `vault watch install` | macOS autostart (`uninstall` removes it) |
+| `aifd-cosmos.html` | `aifd cosmos` | Self-contained star map in the current directory (path configurable) |
+
+Every state file is written atomically via `tmp + rename` -- a SIGKILL mid-write can't leave half a JSON behind.
 
 ### Common flags
 
 ```bash
 aifd --version
+aifd --help                 # --help works at every level
+aifd vault watch events --help
+
 aifd ai session list -v     # INFO logging
 aifd ai session list -vv    # DEBUG logging
 aifd ai retro --json        # almost every command supports --json
 ```
 
+`--json` exists for pipes: every query command emits a stable JSON schema you can pipe straight into `jq`.
+
 ### Current support matrix
 
-| Tool | Status | Notes |
-|---|---|---|
-| Claude Code | ✅ | Reads `~/.claude/projects/{encoded-cwd}/*.jsonl` |
-| Codex | ✅ | Reads `~/.codex/state_5.sqlite` + `~/.codex/sessions/` as fallback |
-| OpenCode | ✅ v0.10 | Reads `~/.local/share/opencode/opencode.db` (SQLite); session / token supported, skill invocations and questions return empty for now |
-| Cursor | ✅ v0.11 | Reads `globalStorage/state.vscdb` + `workspaceStorage/` (cross-store JOIN); sessions supported (hash mapping ~80%, empty-shell filtering), listed by directory; skill invocations and questions return empty |
+**AI tools × capabilities**
 
-| LLM provider (via LiteLLM) | Command support |
-|---|---|
-| DeepSeek (default), Zhipu GLM, Alibaba Tongyi, Volcengine Ark, Moonshot Kimi | ✅ reflect / habits |
-| OpenAI, Anthropic, Gemini, Groq, Together, Fireworks | ✅ reflect / habits |
-| ollama / vLLM / Azure OpenAI / company OpenAI-compatible proxy | ✅ (use `--api-base`) |
+| Tool | session | token/cost | skill invocations | question | Data source |
+|---|---|---|---|---|---|
+| **Claude Code** | ✅ | ✅ | ✅ | ✅ | `~/.claude/projects/{encoded-cwd}/*.jsonl` |
+| **Codex** | ✅ | ✅ | ✅ | ➖ | `~/.codex/state_5.sqlite` + `~/.codex/sessions/` fallback |
+| **OpenCode** (v0.10) | ✅ | ✅ | ➖ | ➖ | `~/.local/share/opencode/opencode.db` |
+| **Cursor** (v0.11) | ✅ | ✅ | ➖ | ➖ | `globalStorage/state.vscdb` + `workspaceStorage/` |
+
+➖ = that tool has no corresponding structured data; the command returns empty rather than erroring. Codex's `agent_message` and the OpenCode messages are free text with no structured "ask the user" event; covering plain-text questioning would need heuristic extraction and would introduce noise, so the roadmap picks **precision first**. Reasoning in [`docs/question-extraction.md`](./docs/question-extraction.md).
+
+**Installed-skill listing** (`aifd ai claude skill list` / `aifd ai codex skill list`) covers Claude Code and Codex today; OpenCode's skill directory (`~/.config/opencode/skills`) is recognized but not yet wired into the CLI.
+
+**What makes Cursor special**: the other three store cwd as a first-class field and can do `WHERE directory = ?` directly. Cursor splits sessions (globalStorage) from cwd (workspaceStorage) into two stores that don't reference each other, so a cross-store JOIN is required and the read can't be narrowed by cwd at the SQL layer. In practice hash mapping covers about 80% of real sessions (timestamp-form ids have no matching workspace directory on disk); the unmapped count is printed as one stderr line. Cursor is also a live Electron app writing its SQLite WAL while we read, so it's opened `mode=ro`, retried once on lock contention, then silently skipped. Windows path support isn't built yet -- see [TODOS.md](./TODOS.md).
+
+**LLM providers (via LiteLLM)**
+
+| Provider | `reflect` / `habits` | Notes |
+|---|---|---|
+| DeepSeek (default), Zhipu GLM, Alibaba DashScope, Volcengine Ark, Moonshot Kimi | ✅ | Chinese-ecosystem providers, `provider/model` form |
+| OpenAI, Anthropic, Gemini, Groq, Together, Fireworks | ✅ | |
+| ollama / vLLM / Azure OpenAI / company OpenAI-compatible proxy | ✅ | Needs `--api-base` or `llm.api_base` |
+
+In principle all 100+ LiteLLM providers work -- aifd maintains no provider list of its own, it just forwards the `provider/model` string.
+
+---
+
+## 🔒 Data sources and privacy
+
+### What files aifd reads
+
+aifd opens every path below **read-only**. It does not create, modify, or delete your AI tool data.
+
+| Tool | Session data | Installed skills |
+|---|---|---|
+| Claude Code | `~/.claude/projects/{encoded-cwd}/*.jsonl` | `~/.claude/skills/`, `~/.claude/plugins/cache/` |
+| Codex | `~/.codex/state_5.sqlite` (primary) + `~/.codex/sessions/` (fallback) | `~/.codex/skills/` |
+| OpenCode | `~/.local/share/opencode/opencode.db` | `~/.config/opencode/skills/` |
+| Cursor (macOS) | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` + `workspaceStorage/` | — |
+| Cursor (Linux) | `$XDG_CONFIG_HOME/Cursor/User/` (or `~/.config/Cursor/User/`) | — |
+| Cursor (Windows) | `%APPDATA%/Cursor/User/` -- **not supported yet**, see TODOS.md | — |
+
+**A single file that fails to parse must be silently skipped** (logged at `warning` / `debug`), never raised -- one bad file cannot take down the whole table. This is a hard constraint at the provider layer and an acceptance criterion for new provider PRs.
+
+### Privacy invariants
+
+These are hard guarantees, each with tests behind it:
+
+1. **Full secret values never leave the detector.** The `SensitiveMatch` dataclass stores a redacted snippet only (first 4 + last 4 chars). Terminal output, `--json`, `watch.log`, `watch-state.json`, `findings.db`, webhook payloads -- redacted snippet only. You can paste `aifd vault scan --json` output straight to a colleague.
+2. **The LLM prompt contains none of your content.** `reflect` / `habits` send aggregated statistical dimensions only:
+   - No session message content
+   - No raw AskUserQuestion text and no raw answers
+   - No full cwd paths (**basename only**)
+   - `--include-questions` is opt-in and still sends summaries only, **never** raw text
+   - `render_prompt` runs a `_scan_line` backstop at the exit: if any v0.4 detector pattern appears in the prompt, the test fails
+3. **The HTTP server binds `127.0.0.1` only**, not `0.0.0.0` -- other machines on the LAN cannot reach the findings page. The token in the notification URL is `secrets.token_urlsafe(32)` (~256 bits, unguessable).
+4. **Shareable artifacts are already redacted.** In the HTML from `aifd cosmos` and `aifd ai question list --output`, cwd is basename-only and home paths are redacted to `~`; all user text goes through `html.escape()`, so a `<script>` string in your history can't XSS.
+5. **Webhooks send fingerprint + redacted snippet only**, and are disabled by default until a `test` succeeds -- so a mistyped URL can't push alerts somewhere wrong.
+
+### When aifd touches the network
+
+aifd is offline by default. Only these three cases make a network request, and you trigger all of them explicitly:
+
+| Command | Destination | What goes out |
+|---|---|---|
+| `aifd ai reflect` / `aifd ai habits` | Your configured LLM provider | Aggregated dimensions (see invariant 2 above), ~$0.001 per run |
+| `aifd quota` | MiniMax usage endpoint | One Bearer header, no body |
+| `aifd vault watch webhooks` | Your configured webhook URL | fingerprint + category + redacted snippet |
+
+Every other command -- `session list` / `skill list` / `question list` / `today` / `weekly` / `monthly` / `retro` / `vault scan` / `vault cost` / `cosmos` -- makes **zero network requests**. The HTML `cosmos` generates inlines all its JS, so opening it fires no requests either.
+
+---
+
+## ❓ Troubleshooting
+
+**`aifd ai session list` shows nothing**
+
+It **exactly matches** the current directory by default and does not recurse. Make sure you're in the directory where you actually ran AI sessions. `aifd ai session list -vv` shows DEBUG logs including which paths it scanned and what it skipped. To look across directories use `aifd ai skill list` (global by default) or `aifd ai weekly`.
+
+**`aifd ai question list` returns empty for Codex / OpenCode / Cursor**
+
+Expected, not a bug. Only Claude Code has structured `AskUserQuestion` tool-call events. See [Current support matrix](#current-support-matrix).
+
+**Some `aifd vault cost` rows show $0 with a non-zero token count**
+
+That model isn't in the price table. Run `aifd vault cost --list-models` to see what is, then file an issue (or a PR) adding it to `aifd/vault/prices.py`. aifd deliberately shows the tokens rather than guessing at a price.
+
+**`vault watch` is installed but no notifications arrive**
+
+In order:
+
+1. `aifd vault watch status` -- is the daemon running? Which notify backend is it using?
+2. If `terminal-notifier` isn't installed, `brew install terminal-notifier`. The `osascript` fallback makes **clicking a notification open Script Editor** instead of a browser -- a known limitation of AppleScript's `display notification` (no custom click callback).
+3. System Settings → Notifications → allow Terminal / terminal-notifier, then `aifd vault watch stop && aifd vault watch start`.
+4. Still nothing? Run it in the foreground and read the log: `aifd vault watch start --foreground -vv`.
+
+On first start the daemon sends a "Watch daemon started — notifications working." test notification. Not seeing that one means a notification permission problem, not a detection problem.
+
+**`aifd vault watch install` fails on Linux**
+
+`install` / `uninstall` are macOS-only (they use launchd). On Linux run `aifd vault watch daemon` under `systemctl --user`; the `.service` template is in [`docs/vault-watch.md`](./docs/vault-watch.md). The detection logic itself is cross-platform (watchdog wraps inotify).
+
+**`ModuleNotFoundError: No module named 'litellm'` (but `uv run aifd` works)**
+
+The editable-install dep trap. See [The editable-install dep trap](#the-editable-install-dep-trap).
+
+**`aifd ai reflect` says there's no API key**
+
+Set an env var (`export DEEPSEEK_API_KEY=sk-...`) or edit `llm.api_key` in `~/.aifd/config.yaml`. The first `aifd ai reflect` run generates the template file. Precedence is in [Config precedence](#config-precedence).
+
+Missing keys don't crash it -- it degrades to a structured local report plus a clear error message. Same for 401 / 5xx / timeout.
+
+**`aifd quota` says "No active MiniMax Coding Plan"**
+
+The key is valid but has no running coding-plan subscription attached. Check that `MINIMAX_API_KEY` is the coding-plan key rather than a regular API key (and not your `llm.api_key`).
+
+**`aifd cosmos` reports "No sessions found"**
+
+No sessions inside the window. Widen it: `aifd cosmos --since 365`.
+
+**Some Cursor sessions are missing**
+
+Known limitation: cwd is resolved through workspace hash mapping, which covers about 80% in practice; timestamp-form composer ids have no matching workspace directory on disk so no cwd can be derived. The unmapped count is printed on stderr. Also, only composers appearing in `bubbleId:*` (real conversation content) count as sessions -- the other ~80% of `composerData` rows are drafts and migration residue that Cursor's own UI doesn't show either.
 
 ---
 
@@ -902,48 +1281,75 @@ aifd ai retro --json        # almost every command supports --json
 
 ### Architecture
 
-One adapter per AI tool lives under `aifd/providers/`. Adding a provider = one file + one line of registration. The CLI is three layers (`aifd ai session list`), leaving room for future commands like `session show` / `session resume` / `ai prompt`.
+Three layering principles:
+
+1. **One adapter per AI tool**, under `aifd/providers/`, all implementing the same `Provider` Protocol. Commands upstream never learn how differently Claude and Cursor store their data.
+2. **Business logic separated from rendering.** `vault/` and `insights/` only compute; `render*.py` owns the three outputs (rich Table / JSON / HTML). That's why "add a `--json`" is always a few lines.
+3. **Three CLI layers** (`aifd ai session list`), leaving namespace for a future `session show` / `session resume` / `ai prompt`.
 
 ```text
 aifd/
-├── cli/
-│   ├── _logging.py          # logging config shared by all CLI commands
-│   ├── _runner.py           # shared provider-query framework (v0.3)
+├── cli/                         # CLI layer: parse args, call business layer, pick a renderer
+│   ├── __init__.py              # top-level `aifd` group (ai / cosmos / quota / vault)
+│   ├── _logging.py              # shared -v / -vv logging config
+│   ├── _runner.py               # shared provider-query framework            v0.3
+│   ├── cosmos.py                # aifd cosmos                                v0.13-0.14
+│   ├── quota.py                 # aifd quota / quota minimax                 v0.12
 │   ├── ai/
-│   │   ├── session.py       # aifd ai session list (v0.1)
-│   │   ├── skill.py         # aifd ai skill list (v0.2)
-│   │   ├── question.py      # aifd ai question list (v0.3 + HTML v0.3.1)
-│   │   ├── retro.py         # aifd ai today / weekly / monthly / retro (v0.5)
-│   │   ├── reflect.py       # aifd ai reflect (v0.8)
-│   │   ├── habits.py        # aifd ai habits (v0.9)
-│   │   ├── claude/skill.py  # aifd ai claude skill list (v0.2.1)
-│   │   └── codex/skill.py   # aifd ai codex skill list (v0.2.1)
+│   │   ├── session.py           # aifd ai session list                       v0.1
+│   │   ├── skill.py             # aifd ai skill list                         v0.2
+│   │   ├── question.py          # aifd ai question list (+ HTML v0.3.1)      v0.3
+│   │   ├── retro.py             # aifd ai today / weekly / monthly / retro   v0.5
+│   │   ├── reflect.py           # aifd ai reflect                            v0.8
+│   │   ├── habits.py            # aifd ai habits                             v0.9
+│   │   ├── claude/skill.py      # aifd ai claude skill list                  v0.2.1
+│   │   └── codex/skill.py       # aifd ai codex skill list                   v0.2.1
 │   └── vault/
-│       ├── scan.py          # aifd vault scan (PII/secret scan, v0.4)
-│       ├── cost.py          # aifd vault cost (token + $, v0.4)
-│       └── watch.py         # aifd vault watch (daemon + events + webhooks, v0.6-0.7)
-├── providers/
-│   ├── base.py              # Provider Protocol, every new provider must implement it
-│   ├── _utils.py            # shared regex / name normalization / frontmatter parsing
-│   ├── claude.py            # Claude Code adapter
-│   ├── codex.py             # Codex adapter
-│   ├── opencode.py          # OpenCode adapter (v0.10)
-│   └── registry.py          # where you register a new provider
-├── insights/                # v0.8-0.9 AI Coach business logic
-│   ├── activity.py          # session aggregation (shared by reflect / habits)
-│   ├── reflection.py        # reflect dimension calculations
-│   ├── habits.py            # habits dimension calculations
-│   └── llm_client.py        # LiteLLM wrapper (100+ provider routing)
-├── vault/                   # v0.4-0.7 business logic
-│   ├── prices.py            # model → USD price table
-│   ├── cost.py              # aggregate token → $
-│   ├── scan.py              # PII/secret detector
-│   ├── watch.py / watch_server.py / events_db.py / webhooks.py  # real-time daemon + event stream + push
-│   └── playbooks.py         # secret rotation step library
-├── aggregation.py           # skill stats aggregation (v0.2)
-├── models.py                # Session / SkillInvocation / SkillStats / InstalledSkill / QuestionAnswer / TokenUsage / CostRow / SensitiveMatch
-├── paths.py                 # cwd normalization
-└── render.py                # rich Table / JSON / HTML rendering
+│       ├── scan.py              # aifd vault scan                            v0.4
+│       ├── cost.py              # aifd vault cost                            v0.4
+│       └── watch.py             # aifd vault watch + events + webhooks       v0.6-0.7
+│
+├── providers/                   # one adapter per AI tool
+│   ├── base.py                  # Provider Protocol -- the contract for new providers
+│   ├── registry.py              # PROVIDERS list; the single registration point
+│   ├── _utils.py                # shared regex / skill name normalization / frontmatter
+│   ├── claude.py                # Claude Code (session / skill / question / token)
+│   ├── codex.py                 # Codex (sqlite primary + jsonl fallback)
+│   ├── opencode.py              # OpenCode                                   v0.10
+│   └── cursor.py                # Cursor (cross-store JOIN + read-only WAL)  v0.11
+│
+├── insights/                    # AI Coach business logic                    v0.8-0.9
+│   ├── activity.py              # session aggregation + public iter_sessions_in()
+│   │                            #   (shared by reflect / habits / cosmos)
+│   ├── reflection.py            # reflect's 9 dimension calculations
+│   ├── reflection_prompt.py     # reflect prompt assembly + secret exit check
+│   ├── reflection_source.py     # reflect data-source adapter
+│   ├── habits.py                # habits' 8 dimension calculations
+│   ├── habits_prompt.py         # habits prompt assembly
+│   └── llm_client.py            # LiteLLM wrapper (100+ provider routing + fallback)
+│
+├── vault/                       # data-sovereignty business logic            v0.4-0.7
+│   ├── scan.py                  # 10 regex detectors + entropy + FP suppression
+│   ├── prices.py                # model → USD price table
+│   ├── cost.py                  # aggregate token → $
+│   ├── playbooks.py             # rotation steps for 11 secret classes (en + zh)
+│   ├── watch.py                 # daemon main loop (watchdog file events)
+│   ├── watch_server.py          # finding-detail HTTP server, 127.0.0.1 only
+│   ├── watch_state.py           # atomic state file read/write under ~/.aifd/
+│   ├── events_db.py             # SQLite event stream + state machine         v0.7
+│   ├── webhooks.py              # outbound push + retry + dead letter         v0.7
+│   └── static/                  # watch web UI single-page SPA
+│
+├── assets/                      # vendored force-graph 1.51.4 (MIT), shipped in the wheel
+├── config.py                    # ~/.aifd/config.yaml I/O + env precedence + 0600
+├── models.py                    # Session / SkillInvocation / SkillStats /
+│                                # InstalledSkill / QuestionAnswer / TokenUsage /
+│                                # CostRow / SensitiveMatch
+├── paths.py                     # cwd normalization (cross-provider dir comparison)
+├── aggregation.py               # skill stats aggregation                    v0.2
+├── render.py                    # rich Table / JSON / HTML rendering
+├── render_cosmos.py             # cosmos data layer build_graph + 2D force-graph  v0.13
+└── render_cosmos_25d.py         # cosmos 2.5D canvas rendering (v0.14 default)    v0.14
 ```
 
 ### Contribute a new provider
@@ -953,9 +1359,14 @@ aifd/
 3. Add a fixture factory in `tests/conftest.py` (see `opencode_db` / `codex_db`) and write `tests/test_yourtool_provider.py`.
 4. Make sure `uv run pytest`, `uv run ruff check aifd/ tests/`, and `uv run mypy aifd/` all pass.
 
-The recent `aifd/providers/opencode.py` (v0.10) is a complete example of "one file + one line of registration".
+`aifd/providers/opencode.py` (v0.10) is the cleanest example of "one file + one line of registration".
+If your tool's storage is more awkward (sessions and cwd in two stores, written while you read), look at `cursor.py` (v0.11) -- its module docstring spells out how each of those problems was handled.
 
-**Single-file parse errors must silent-skip** (logged at `warning` or `debug` level), never raise -- one bad file must not take down the whole list.
+**Hard constraints:**
+
+- **Single-file parse errors must silent-skip** (logged at `warning` or `debug` level), never raise -- one bad file must not take down the whole list.
+- **Open all external data read-only.** Live apps (Cursor / OpenCode) are writing their SQLite WAL, so use `mode=ro`, retry once on lock contention, then skip.
+- **Return an empty list for unsupported capabilities**, don't raise `NotImplementedError` -- the layer above aggregates across providers, and one tool's gap shouldn't affect the others.
 
 ### Development
 
@@ -963,10 +1374,33 @@ The recent `aifd/providers/opencode.py` (v0.10) is a complete example of "one fi
 git clone https://github.com/xunull/aifd
 cd aifd
 uv sync
-uv run pytest
-uv run ruff check aifd/ tests/
-uv run mypy aifd/
+
+uv run pytest                       # 744 tests
+uv run pytest --cov=aifd            # with coverage
+uv run pytest -m live_api           # tests that hit a real LLM API (needs a key, skipped by default)
+uv run ruff check aifd/ tests/      # lint
+uv run mypy aifd/                   # type check (strict)
+
+uv run aifd ai session list         # run without installing to PATH
 ```
+
+The repo ships a `.pre-commit-config.yaml` wired to [gitleaks](https://github.com/gitleaks/gitleaks) -- it scans the staging area before every commit and blocks accidentally committed API keys. A tool that scans for secrets should be guarded by secret scanning itself:
+
+```bash
+pre-commit install
+```
+
+### Tests and CI
+
+| Item | Status |
+|---|---|
+| Test count | **744** (`uv run pytest`) |
+| CI matrix | ubuntu / macOS / Windows × Python 3.12 / 3.13 = **6 combinations**, `fail-fast: false` |
+| Gates | `ruff check` → `mypy aifd/` (strict) → `pytest --cov`, all green or it doesn't pass |
+| Live API tests | Marked `live_api`, skipped by default; need a provider key + an explicit `pytest -m live_api` |
+| Release | A `v*` tag triggers `release.yml`, which fails the build if the tag and the `pyproject.toml` version disagree |
+
+mypy runs in **strict** mode (`warn_unused_ignores` and `warn_return_any` both on); ruff uses the `E, F, W, I, B, UP, RUF` rule sets at line length 100. Fullwidth punctuation in Chinese prose (rotation playbooks, LLM prompts) is intentional and exempted per-file from `RUF001-003` in `pyproject.toml`.
 
 #### The editable-install dep trap
 
@@ -986,24 +1420,71 @@ The error usually looks like `ModuleNotFoundError: No module named 'litellm'` (i
 
 ---
 
+## 🧭 Version timeline
+
+One through-line: first **query**, then **compute**, then **prevent**, and finally **reflect** and **see**.
+
+| Version | What it added | One-liner |
+|---|---|---|
+| v0.1 | `aifd ai session list` | List sessions by directory -- the foundation everything else sits on |
+| v0.2 | `aifd ai skill list` | Cross-tool skill stats; cross-provider name normalization |
+| v0.2.1 | `ai claude/codex skill list` | List installed skills (user / plugin / system) |
+| v0.3 | `aifd ai question list` | Review AskUserQuestion history + recommended hit rate |
+| v0.3.1 | `--open` / `--html` / `--output` | Long questions don't fit a terminal table, so open a browser |
+| v0.4 | `aifd vault scan` / `cost` | secret / PII scanning + token → USD estimation |
+| v0.5 | `today` / `weekly` / `monthly` / `retro` | Activity retrospective + period-over-period deltas + monthly projection |
+| v0.6 | `aifd vault watch` | From after-the-fact query to prevention: resident daemon + macOS notifications |
+| v0.7 | `watch events` / `watch webhooks` | Persistent event stream (SQLite) + state machine + external alerting |
+| v0.8 | `aifd ai reflect` | AI Coach: weekly meta-cognitive reflection, routed through LiteLLM |
+| v0.9 | `aifd ai habits` | 60-90 day behavior persona: what kind of AI user you are |
+| v0.10 | OpenCode provider | Third tool supported |
+| v0.11 | Cursor provider | Fourth tool supported (the cross-store JOIN was the hard part) |
+| v0.12 | `aifd quota` | MiniMax Coding Plan 5h window remaining quota |
+| v0.13 | `aifd cosmos` | AI history → force-directed galaxy, self-contained HTML |
+| v0.13.1-0.13.2 | Visual polish + perf fix | Glowing stars; dropped `shadowBlur` to fix a freeze (5s → 1.6ms per frame) |
+| **v0.14** | **cosmos 2.5D by default** | Drag-to-rotate star map; `--flat` keeps the 2D view |
+
+Full change log in [CHANGELOG.md](./CHANGELOG.md); what's next in [TODOS.md](./TODOS.md).
+
+---
+
 ## License
 
 Apache-2.0 - see [LICENSE](./LICENSE).
 
+The vendored force-graph 1.51.4 is MIT; its license text is at [`aifd/assets/force-graph.LICENSE`](./aifd/assets/force-graph.LICENSE).
+
 ## Related docs
 
-- [`docs/ai-reflect.md`](./docs/ai-reflect.md) - full spec for `aifd ai reflect`
-- [`docs/ai-habits.md`](./docs/ai-habits.md) - full spec for `aifd ai habits`
+**Command specs**
+
+- [`docs/ai-reflect.md`](./docs/ai-reflect.md) - full spec for `aifd ai reflect` (9 dimensions + privacy invariants)
+- [`docs/ai-habits.md`](./docs/ai-habits.md) - full spec for `aifd ai habits` (8 dimensions)
 - [`docs/ai-retro.md`](./docs/ai-retro.md) - full spec for `aifd ai today / weekly / monthly / retro`
-- [`docs/vault-watch.md`](./docs/vault-watch.md) - full spec for `aifd vault watch`
+- [`docs/vault.md`](./docs/vault.md) - overall `aifd vault` design
+- [`docs/vault-watch.md`](./docs/vault-watch.md) - full spec for `aifd vault watch` (includes the Linux systemd template)
 - [`docs/vault-events.md`](./docs/vault-events.md) - full spec for `aifd vault watch events / webhooks`
-- [`docs/question-extraction.md`](./docs/question-extraction.md) - extraction algorithm for `aifd ai question list`
-- [`docs/secret-scan.md`](./docs/secret-scan.md) - secret scan safety invariants
+
+**Algorithms and implementation**
+
+- [`docs/question-extraction.md`](./docs/question-extraction.md) - extraction algorithm and precision trade-offs for `aifd ai question list`
+- [`docs/secret-scan.md`](./docs/secret-scan.md) - detectors, false-positive suppression, safety invariants
+- [`docs/cost-calculation.md`](./docs/cost-calculation.md) - token pricing model and per-vendor cache semantics
+- [`docs/skill-detection.md`](./docs/skill-detection.md) - cross-tool skill invocation detection and name normalization
+- [`docs/vault-watch-lifecycle.md`](./docs/vault-watch-lifecycle.md) - daemon lifecycle, launchd interaction, crash recovery
+- [`docs/vault-events-integrations.md`](./docs/vault-events-integrations.md) - webhook payload format and Slack / PagerDuty / Datadog wiring
+
+**Project maintenance**
+
+- [`docs/release.md`](./docs/release.md) - release process
+- [`docs/claude-code-plugin-update.md`](./docs/claude-code-plugin-update.md) - notes on adapting to Claude Code plugin structure changes
 - [`CHANGELOG.md`](./CHANGELOG.md) - version changes
 - [`TODOS.md`](./TODOS.md) - roadmap + known follow-ups
 
 ## Feedback
 
 Issues / discussions / PRs all welcome: <https://github.com/xunull/aifd>
+
+Want support for another AI tool? Start at [Contribute a new provider](#contribute-a-new-provider) -- it's usually one file.
 
 [⬆ Back to top](#aifd)

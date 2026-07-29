@@ -12,18 +12,28 @@
 每个 AI 编码工具都把历史存在自己的私有格式里。`aifd` 把所有工具的数据**按你的视角**聚合：按目录、按 skill、按问题、按花费、按行为模式 —— 而不是按工具。
 
 ```text
-查 → 扫 → 算 → 盯 → 反思
-session / skill / question  →  secret / PII  →  cost / token  →  实时 daemon  →  AI Coach
+查 → 算 → 扫 → 盯 → 反思 → 看
+session / skill / question → cost / token → secret / PII → 实时 daemon → AI Coach → 星图
 ```
+
+**三个事实**，决定了你会不会用它：
+
+1. **只读、离线、本地**。aifd 从不写你的 AI 工具数据目录，也不需要联网 —— 除非你主动跑 `aifd ai reflect` / `habits`（调 LLM）或 `aifd quota`（查订阅额度）。
+2. **完整 secret 值永不出现在任何输出里**。扫描结果、JSON、日志、webhook payload、LLM prompt，一律只有脱敏片段（首 4 + 尾 4 字符）。
+3. **加一个新 AI 工具 = 一个文件 + 一行注册**。见[贡献一个新 provider](#贡献一个新-provider)。
+
+当前版本 **v0.14.0**，Python 3.12+，744 个测试跑在 3 个操作系统 × 2 个 Python 版本上。
 
 ---
 
 ## 📑 目录
 
-### ✨ [亮点速览（7 个截图）](#-亮点速览gif-风格)
+### ✨ [亮点速览（8 个截图）](#-亮点速览gif-风格)
 
 ### 🚀 [快速开始](#-快速开始)
 - [安装](#-安装) · [一分钟试用](#-一分钟试用)
+
+### 📋 [完整命令树](#-完整命令树)
 
 ### 🔍 [查 — 列你的历史](#-查--列你的历史)
 | 命令 | 一句话 | 版本 |
@@ -56,15 +66,34 @@ session / skill / question  →  secret / PII  →  cost / token  →  实时 da
 | [`aifd ai reflect`](#aifd-ai-reflect--ai-coach让-llm-看你怎么用-ai) | 每周让 LLM 写一段 80-150 字 meta-cognitive reflection | v0.8 |
 | [`aifd ai habits`](#aifd-ai-habits--长期-ai-行为人格画像) | 60-90 天长期行为人格画像（你是什么类型的 AI 用户）| v0.9 |
 
+### 🌌 [看 — 把 AI 史变成星图](#-看--把-ai-史变成星图)
+| 命令 | 一句话 | 版本 |
+|---|---|---|
+| [`aifd cosmos`](#aifd-cosmos--鼠标拖拽旋转的立体星图) | 生成可拖拽旋转的 2.5D 星图（自包含 HTML，离线可看）| v0.13 → v0.14 |
+
+### 📉 [额度 — 订阅用量](#-额度--订阅用量)
+| 命令 | 一句话 | 版本 |
+|---|---|---|
+| [`aifd quota`](#aifd-quota--minimax-coding-plan-5h-额度) | MiniMax Coding Plan 5 小时滚动窗口剩余额度 | v0.12 |
+
 ### 🛠️ [配置与运行时](#%EF%B8%8F-配置与运行时)
-- [LLM 配置（`~/.aifd/config.yaml`）](#llm-配置aifdconfigyaml) · [通用 flag](#通用-flag) · [当前支持矩阵](#当前支持矩阵)
+- [`~/.aifd/config.yaml` 完整 schema](#aifdconfigyaml-完整-schema) · [配置优先级](#配置优先级) · [aifd 在磁盘上写了什么](#aifd-在磁盘上写了什么) · [通用 flag](#通用-flag) · [当前支持矩阵](#当前支持矩阵)
+
+### 🔒 [数据来源与隐私](#-数据来源与隐私)
+- [aifd 读哪些文件](#aifd-读哪些文件) · [隐私 invariant](#隐私-invariant) · [什么时候会联网](#什么时候会联网)
+
+### ❓ [常见问题排查](#-常见问题排查)
 
 ### 🏗️ [架构与贡献](#%EF%B8%8F-架构与贡献)
-- [架构](#架构) · [贡献一个新 provider](#贡献一个新-provider) · [开发](#开发) · [Editable 安装的 dep trap](#editable-安装的-dep-trap)
+- [架构](#架构) · [贡献一个新 provider](#贡献一个新-provider) · [开发](#开发) · [测试与 CI](#测试与-ci) · [Editable 安装的 dep trap](#editable-安装的-dep-trap)
+
+### 🧭 [版本历程](#-版本历程)
 
 ---
 
 ## ✨ 亮点速览（gif 风格）
+
+八条命令，八个不同的问题。下面的输出都是真实跑出来的（数字做了脱敏）。
 
 **1. 按目录列 session（v0.1）**
 
@@ -168,6 +197,28 @@ $ aifd ai habits
 
 `reflect` 回答「这周怎么样」；`habits` 回答「**我是什么类型的 AI 用户**」。LLM 路由经 [LiteLLM](https://github.com/BerriAI/litellm) 100+ provider（DeepSeek / 智谱 / 通义 / 方舟 / Anthropic / OpenAI / Gemini / ollama / vLLM / Azure）。详见 [`aifd ai reflect`](#aifd-ai-reflect--ai-coach让-llm-看你怎么用-ai) / [`aifd ai habits`](#aifd-ai-habits--长期-ai-行为人格画像)。
 
+**8. 你的 AI 宇宙 — 可拖拽旋转的立体星图（v0.13 → v0.14）**
+
+```text
+$ aifd cosmos
+✨ 1106 sessions → aifd-cosmos.html
+```
+
+```text
+              ·  ✦        ·
+        ✦   ·      ●aifd        ·   ✦          ← 紫色 hub = 项目
+   ·        ✦   ·   ·  ✦   ·        ·
+      ●gstack   ·  ✦  ·      ●dotfiles  ✦      ← 蓝点 = vibe-coding
+   ✦     ·   ✦      ·    ✦      ·   ·          ← 红点 = 深聊（长 session）
+        ·       ✦        ·      ✦
+   [ 按住鼠标拖拽 → 星云绕轴旋转，近大远小 ]
+```
+
+每个 session 是一颗星（半径 = event 数，冷蓝 = vibe-coding、暖红 = 深聊），每个项目是它环绕的 hub。
+**按住鼠标拖拽即可绕轴旋转**（v0.14 默认 2.5D；`--flat` 回到 v0.13 的 2D force-graph）。
+输出是 66KB 自包含 HTML —— 离线可看、零网络依赖、cwd 只显 basename 所以截图分享不泄漏项目名。
+详见 [`aifd cosmos`](#aifd-cosmos--鼠标拖拽旋转的立体星图)。
+
 ---
 
 ## 🚀 快速开始
@@ -204,15 +255,69 @@ aifd vault scan
 
 # 4. 复盘 AskUserQuestion 历史 + recommended hit rate
 aifd ai question list --cwd --limit 10
+
+# 5. 把你的 AI 史渲染成可拖拽旋转的星图
+aifd cosmos
 ```
 
-要用 **AI Coach（reflect / habits）** 还需要配置一个 LLM API key —— 见 [LLM 配置](#llm-配置aifdconfigyaml)。
+这 5 条**都不需要任何配置和 API key** —— 直接读你本机已有的 AI 工具数据。
+
+要用 **AI Coach（`reflect` / `habits`）** 才需要配一个 LLM API key，见 [`~/.aifd/config.yaml` 完整 schema](#aifdconfigyaml-完整-schema)。
+要用 **`aifd quota`** 需要一个 MiniMax coding-plan key（跟 LLM key 是两回事）。
+
+**一条命令都没输出？** 大概率是 aifd 还没适配你在用的工具，或者当前目录没有历史。跳到[常见问题排查](#-常见问题排查)。
+
+---
+
+## 📋 完整命令树
+
+v0.14 的全部命令。四个顶层 group：`ai`（跨工具查询与反思）、`vault`（数据主权）、`cosmos`（可视化）、`quota`（订阅额度）。
+
+```text
+aifd
+├── ai                                  跨 AI 工具的操作
+│   ├── session list                    列当前目录的 session                     v0.1
+│   ├── skill list                      跨工具 skill 使用统计                     v0.2
+│   ├── question list                   复盘 AskUserQuestion 历史（+ HTML）        v0.3
+│   ├── claude skill list               列已装的 Claude skill                     v0.2.1
+│   ├── codex skill list                列已装的 Codex skill                      v0.2.1
+│   ├── today                           今天的活动摘要                            v0.5
+│   ├── weekly                          过去 7 天滚动窗口                         v0.5
+│   ├── monthly                         当月活动摘要                              v0.5
+│   ├── retro --since/--until           自定义区间 retrospective                  v0.5
+│   ├── reflect                         每周 meta-cognitive 反思（需 LLM）         v0.8
+│   └── habits                          60-90 天行为人格画像（需 LLM）             v0.9
+│
+├── vault                               数据主权：scan / cost / watch
+│   ├── scan                            一次性扫 secret / PII                     v0.4
+│   ├── cost                            token 用量 + USD 估算                     v0.4
+│   └── watch                           实时 secret 检测 daemon                   v0.6
+│       ├── install / uninstall         注册 / 移除 launchd 开机自启（macOS）
+│       ├── start / stop / status       启停 + 看 pid / 端口 / 今日捕获数
+│       ├── tail                        跟踪 ~/.aifd/watch.log
+│       ├── events                      持久化 finding 事件流（SQLite）           v0.7
+│       │   ├── list / show             列出 / 查看单条（含 rotation playbook）
+│       │   ├── ack / mute / resolve    状态机流转
+│       │   └── export                  导出 NDJSON
+│       └── webhooks                    外部报警系统接入                          v0.7
+│           ├── add / delete / list     增删查
+│           ├── test                    发测试事件（必须 test 通才能 enable）
+│           ├── enable / disable        启停单个 webhook
+│           └── list-dead-letter        投递失败队列 + retry-dead-letter
+│
+├── cosmos                              AI 史 → 可旋转 2.5D 星图 HTML            v0.13 → v0.14
+│
+└── quota                               订阅额度（默认 MiniMax）                  v0.12
+    └── minimax                         MiniMax Coding Plan 5h 窗口
+```
+
+任意层级都能 `--help`：`aifd vault watch events --help`。
 
 ---
 
 ## 📚 命令完整参考
 
-下面按「**查 → 算 → 扫 → 反思**」四组展开。每节顶部有一句话总结 + 何时用，下面是详细 flag 和示例。
+下面按「**查 → 算 → 扫 → 反思 → 看 → 额度**」六组展开。每节顶部有一句话总结 + 何时用，下面是详细 flag 和示例。
 
 ---
 
@@ -322,7 +427,7 @@ aifd ai question list --cwd -v
 
 #### 工具支持
 
-只支持 Claude Code。Codex 的 `agent_message` 和 OpenCode 的消息都是自由文本，没有结构化的「问用户」事件——所以 `--provider codex` / `--provider opencode` 总是返回空。要扩展到这类纯文本提问需要启发式抽取，会引入 noise，所以路线选择**精度优先**。详细原因见 [docs/question-extraction.md](./docs/question-extraction.md) 和 [TODOS.md](./TODOS.md)。
+只支持 Claude Code。Codex 的 `agent_message`、OpenCode 和 Cursor 的消息都是自由文本，没有结构化的「问用户」事件——所以 `--provider codex` / `--provider opencode` / `--provider cursor` 总是返回空（返回空，不是报错）。要扩展到这类纯文本提问需要启发式抽取，会引入 noise，所以路线选择**精度优先**。详细原因见 [`docs/question-extraction.md`](./docs/question-extraction.md) 和 [TODOS.md](./TODOS.md)。
 
 ### `aifd ai session list` — 按目录列 session
 
@@ -339,9 +444,22 @@ aifd ai session list --json | jq '.[] | .session_id'
 # 按 provider 过滤
 aifd ai session list --provider claude
 aifd ai session list --provider codex
+aifd ai session list --provider opencode
+aifd ai session list --provider cursor
 ```
 
-默认**精确匹配**当前目录。递归扫描（`-r`）在 roadmap 上。
+| 列 | 含义 |
+|---|---|
+| **Provider** | 哪个 AI 工具 |
+| **Session** | session id 前缀（够短好认，够长不撞） |
+| **Started** | 相对开始时间 |
+| **Events** | 该 session 的事件数。**跨工具不可比** —— 各家 jsonl 的事件粒度不同 |
+| **Title** | 自动抽取的会话标题 |
+| **Source** | 数据来自哪个文件（缩略显示） |
+
+默认**精确匹配**当前目录，不递归子目录。递归扫描（`-r`）在 roadmap 上。跨目录看全局用 `aifd ai skill list`（默认全局）或 `aifd ai weekly`。
+
+四个 provider 全都支持这条命令，但 Cursor 有已知的 ~80% cwd 映射覆盖率，见[常见问题排查](#-常见问题排查)。
 
 ### `aifd ai skill list` — 跨工具 skill 使用统计
 
@@ -467,7 +585,29 @@ aifd vault scan --no-default-roots --root /path/to/scan
 
 **安全保证**：完整 secret 值绝不出现在输出 / JSON / 日志中。`SensitiveMatch` 数据类只存 redacted snippet（首 4 + 尾 4 字符）。可以直接 paste 给同事 debug，不会泄露真 secret。
 
-支持检测：Anthropic / OpenAI / GitHub PAT / AWS access key / Slack token / JWT / email / 高熵字符串。详细原理见 [docs/vault.md](./docs/vault.md)。
+**检测器与 confidence**
+
+| Category | 匹配 | Confidence |
+|---|---|---|
+| `anthropic_key` | `sk-ant-…` | 10 |
+| `openai_key` | `sk-…` / `sk-proj-…` | 10 |
+| `github_pat` | `ghp_…` | 10 |
+| `github_fine_grained_pat` | `github_pat_…` | 10 |
+| `github_app_token` | `ghs_…` | 10 |
+| `aws_access_key` | `AKIA…` | 9 |
+| `slack_token` | `xoxb/xoxa/xoxp/xoxr/xoxs-…` | 9 |
+| `jwt` | `eyJ….….…` 三段式 | 8 |
+| `bearer_token` | `Bearer <20+ 字符>` | 7 |
+| `email` | 邮箱地址 | 7 |
+| `high_entropy` | 高熵字符串（仅 `--min-confidence 4` 时启用） | 4 |
+
+默认阈值是 **7**，所以只显示上面前 10 个 regex 命中；熵检测要显式降低阈值才开，因为它在真实数据上噪点很多（base64 片段、hash、UUID）。
+
+误报抑制器会滤掉明显不是泄漏的命中：转义前缀、保留域名（`example.com` 等）、`noreply` 类本地部分、占位邮箱域名。
+
+**性能**：先用一次廉价的子串扫描判断这行有没有可能命中任何 vendor 前缀，没有就整段跳过 10 个 regex。实测 26 万行 jsonl 里只有 8.2% 含 vendor 前缀，省掉 92% 的检测器开销。
+
+详细原理、误报抑制规则和安全 invariant 见 [`docs/vault.md`](./docs/vault.md) 和 [`docs/secret-scan.md`](./docs/secret-scan.md)。
 
 ### `aifd vault cost` — 估算 token 用量 + USD 花费
 
@@ -594,9 +734,12 @@ new     github_pat   ghp_…ejyW          1  2026-06-05T17:02    7e8a9b0c1d2e…
 
 - **状态机** — `new` / `acknowledged` / `resolved` / `muted`（24h 或永久）；`resolved` 后再出现自动 re-open
 - **同一 secret 跨文件 = 同一 issue** — fingerprint 按 `category + redacted_snippet` 哈希
-- **Rotation playbook 库** — 8 个核心 vendor（openai / anthropic / github / aws / slack / jwt / gcp...）+ generic fallback；en + zh 双语；附 vendor dashboard 链接 + 步骤
+- **Rotation playbook 库** — 11 类 secret（`openai_key` / `anthropic_key` / `github_pat` / `github_oauth` / `aws_access_key` / `aws_secret` / `slack_token` / `jwt` / `gcp_service_account` / `email` / `high_entropy`）+ generic fallback；中英双语；每条附 vendor dashboard 链接 + 撤销步骤 + severity 分级
+- **Web UI** — daemon 起一个只绑 `127.0.0.1` 的单页 SPA，点通知直接跳到该 finding 在对话上下文里的高亮位置
 
-详见 [`docs/vault-events.md`](./docs/vault-events.md)。
+`aifd vault watch events show <fingerprint>` 会连着 rotation playbook 一起打出来 —— 发现泄漏后不用再去翻各家文档找「怎么撤销这把 key」。
+
+详见 [`docs/vault-events.md`](./docs/vault-events.md) 和 [`docs/vault-events-integrations.md`](./docs/vault-events-integrations.md)。
 
 ### `aifd vault watch webhooks` — 外部报警系统接入
 
@@ -682,8 +825,7 @@ aifd ai reflect --model openai/qwen2.5 --api-base https://vllm.internal/v1
 # 或写进 ~/.aifd/config.yaml 的 llm.model / llm.api_base
 ```
 
-**`~/.aifd/config.yaml` 完整 schema**（首次跑 `aifd ai reflect` 时自动生成，
-权限自动 `chmod 600`）：
+**配置文件**（首次跑 `aifd ai reflect` 时自动生成 `~/.aifd/config.yaml`，权限自动 `chmod 600`）：
 
 ```yaml
 llm:
@@ -700,6 +842,8 @@ reflect:
   default_lang: zh           # en | zh
   include_questions: false   # true = 把 question summary 喂给 LLM（仍不发原文）
 ```
+
+含 `habits:` / `minimax:` 的完整 schema 见 [`~/.aifd/config.yaml` 完整 schema](#aifdconfigyaml-完整-schema)。
 
 各 provider 的 yaml 写法：
 
@@ -814,17 +958,79 @@ habits:
 
 ---
 
-## 🛠️ 配置与运行时
+## 🌌 看 — 把 AI 史变成星图
 
-### LLM 配置（`~/.aifd/config.yaml`）
+### `aifd cosmos` — 鼠标拖拽旋转的立体星图
 
-`aifd ai reflect` 和 `aifd ai habits` 都需要一个 LLM API key。配置位置和 schema 见 [`aifd ai reflect`](#aifd-ai-reflect--ai-coach让-llm-看你怎么用-ai) 章节里的「`~/.aifd/config.yaml` 完整 schema」段。
+> **何时用：** 想一眼看到「我这几个月的 AI 使用形状」—— 哪些项目是主力、哪些是一次性、深聊和 vibe-coding 的比例。或者单纯想要一张能发到群里的图。
+> **版本：** v0.13（2D force-graph）→ **v0.14（2.5D 可旋转，新默认）**
 
-**优先级：** `AIFD_LLM_*` env > provider 原生 env (`DEEPSEEK_API_KEY` / `ZHIPUAI_API_KEY` / ...) > `~/.aifd/config.yaml` > 默认值 (`deepseek/deepseek-chat`)。
+```bash
+aifd cosmos                            # 最近 90 天，生成 + 自动开浏览器
+aifd cosmos --since 30                 # 最近 30 天
+aifd cosmos --since 365                # 最近一年
+aifd cosmos --output ~/my-cosmos.html  # 指定输出路径
+aifd cosmos --no-open                  # 只生成不开浏览器（CI / 远程机）
+aifd cosmos --flat                     # 回到 v0.13 的 2D force-graph
+```
 
-### `aifd quota` — MiniMax Coding Plan 5h 额度（v0.12）
+输出：
 
-用 MiniMax Coding Plan 订阅写代码时，随时查当前 5 小时滚动窗口还剩多少额度，免得写一半用超被卡：
+```text
+✨ 1106 sessions → aifd-cosmos.html
+```
+
+**Flag 参考**
+
+| Flag | 默认值 | 含义 |
+|---|---|---|
+| `--since N` | `90` | 只包含最近 N 天启动的 session（最小 1） |
+| `--output PATH` | `aifd-cosmos.html` | HTML 输出路径 |
+| `--open` / `--no-open` | `--open` | 生成后是否自动开浏览器 |
+| `--flat` | 关 | 渲染 v0.13 的 2D force-graph 而不是默认 2.5D |
+
+**视觉编码**
+
+| 元素 | 含义 |
+|---|---|
+| 星点半径 | 该 session 的 event 数（越大 = 交互越多） |
+| 冷蓝 | vibe-coding（短 session，event 数低于阈值） |
+| 暖红 | 深聊（长 session） |
+| 紫色 hub | 一个项目目录；它的 session 环绕它 |
+| 拖拽 | 绕轴旋转整片星云（左右 + 上下），近大远小 + 景深 |
+| hover | 看该 session 的 provider / 标题 / event 数 |
+
+**2.5D vs 2D（`--flat`）**
+
+| | 默认 2.5D（v0.14） | `--flat` 2D（v0.13） |
+|---|---|---|
+| 交互 | 拖拽旋转 + 自转 | 力导向布局、缩放、拖节点 |
+| 渲染 | 手写 canvas 2D + CPU 三角函数旋转 | vendored force-graph 1.51.4（MIT，内联） |
+| 依赖 | 零 vendored lib，不需要 WebGL | 内联 force-graph |
+| 适合 | 「我的 AI 宇宙」观感、截图分享 | 看清项目之间的拓扑关系 |
+
+v0.14 之所以是 **2.5D 而不是真 3D**：spike 实测下来，真 3D（Three.js + bloom）在密集数据上必然糊（调了 6 版都白/雾）、WebGL 在受限环境黑屏、还要 600KB CDN。而用户真正要的是「能转动的立体感」——旋转是三角函数 + 透视投影，不是 GPU 特权，canvas 上千个点 CPU 算下来是毫秒级。
+
+**设计约束**
+
+- **隐私**：cwd 只显 basename，session title 里的 home 路径脱敏成 `~` —— 截图 / HTML 分享不泄漏用户名和私有项目名
+- **自包含**：所有 JS 内联进 HTML（约 66KB），离线可看，零运行时网络依赖
+- **XSS 两层防护**：用户内容过 `html.escape()` + JSON 里的 `</` 转义
+- **link 模型**：项目 hub 节点（session 连 hub 而不是两两互连），边数 O(n) 而非 O(n²)，几百个 session 的大项目也不会边爆炸
+- **node id** 用 `(provider, session_id)` 复合 key，防跨工具 id 碰撞
+- `event_count` **跨工具不可比**（各家 jsonl 的事件粒度不同），只是 aifd 内部的相对指标
+- 海报 / PNG 导出还没做（force-graph 无 export API，`devicePixelRatio` 太脆），后续 spike
+
+**没有输出？** `aifd cosmos` 在窗口内没有任何 session 时会明确报错并提示放宽 `--since`，不会生成空白 HTML。
+
+---
+
+## 📉 额度 — 订阅用量
+
+### `aifd quota` — MiniMax Coding Plan 5h 额度
+
+> **何时用：** 用 MiniMax Coding Plan 订阅写代码时，随时查当前 5 小时滚动窗口还剩多少额度，免得写一半被卡。
+> **版本：** v0.12
 
 ```bash
 aifd quota            # 默认查 MiniMax
@@ -837,7 +1043,7 @@ aifd quota minimax    # 显式指定（等价）
 MiniMax 5h: 剩 99%，3h27m 后重置
 ```
 
-配置 key（跟 LLM key 分开 —— 这是你的 coding-plan 订阅 key，不是 reflect/habits 的 LLM key）：
+配置 key —— **跟 LLM key 是两回事**。`llm.api_key` 是驱动 `reflect` / `habits` 的模型 key（默认 DeepSeek）；这里是你的 MiniMax coding-plan 订阅凭证，通常是完全不同的一把。aifd 从不拿 `llm.api_key` 兜底：
 
 ```bash
 export MINIMAX_API_KEY=你的key            # env 优先
@@ -849,51 +1055,223 @@ minimax:
   api_key: 你的key
 ```
 
-`aifd quota` 是 group 命令，默认查 MiniMax；未来 `aifd quota <provider>` 可加别的订阅。MiniMax key 永远不会出现在任何报错里（安全设计）。查询不消耗 prompt 额度。
+**安全设计**：MiniMax key 是 Bearer 凭证，只在发请求那一行被拼进 `Authorization` header。所有错误路径都用 `raise ... from None` 切断异常链，因为 httpx 的原始异常可能带上完整 request（含 Bearer key）。结果是 key 永远不会出现在任何报错、traceback 或日志里 —— 顺带一提，aifd 自己的 `vault scan` 就把 `Bearer <key>` 列为 secret 模式。
 
-> best-effort：MiniMax 的 usage 端点未公开文档，若他们改了响应格式，命令会提示「update aifd」而不是崩。
+**其他行为**
 
-### `aifd cosmos` — 把 AI 史变成力导向星系图（v0.13）
+- 查询不消耗你的 prompt 额度
+- 有效 key 但没有在跑的订阅 → 明确提示「No active MiniMax Coding Plan」
+- 按 `model_name == "general"` 精确选行，不按数组下标（`model_remains[]` 顺序无保证，取 `[0]` 可能拿到 video 窗口）
+- 倒计时用服务端返回的 `remains_time`，不用本地时钟 —— 时钟偏移不会污染读数
 
-把你跨四工具的 AI 对话史渲染成一张会发光的力导向星图，生成自包含 HTML（离线可看）：
+> best-effort：MiniMax 的 usage 端点未公开文档。若他们改了响应格式，命令会提示「update aifd」而不是抛 stack trace。
 
-```bash
-aifd cosmos                          # 最近 90 天，生成 + 打开浏览器
-aifd cosmos --since 30               # 最近 30 天
-aifd cosmos --output x.html --no-open
+---
+
+## 🛠️ 配置与运行时
+
+### `~/.aifd/config.yaml` 完整 schema
+
+只有 `aifd ai reflect` / `aifd ai habits` / `aifd quota` 需要配置。其余命令零配置。
+
+首次跑 `aifd ai reflect` 会自动生成带注释的模板，并 `chmod 600`。文件权限过宽（group / other 可读）时 aifd 会警告但不阻塞。
+
+```yaml
+llm:
+  # LiteLLM 'provider/model' 格式 —— 换 provider 只改这一行
+  model: deepseek/deepseek-chat
+  # API key。留空则让 LiteLLM 读 provider 原生 env var
+  # (DEEPSEEK_API_KEY / ZHIPUAI_API_KEY / DASHSCOPE_API_KEY / ARK_API_KEY /
+  #  ANTHROPIC_API_KEY / OPENAI_API_KEY / MOONSHOT_API_KEY / GROQ_API_KEY ...)
+  api_key: sk-xxxxxxxxx
+  # 自托管 / 代理 / ollama / Azure 时填；hosted provider 留空走默认 endpoint
+  api_base:
+
+reflect:
+  default_lang: zh           # en | zh，`aifd ai reflect` 的输出语言
+  include_questions: false   # true = 把 question summary 喂给 LLM（仍不发原文）
+
+habits:
+  default_days: 90           # `aifd ai habits` 的默认分析窗口（天）；< 1 会被重置为 90
+
+minimax:
+  # `aifd quota` 用的 MiniMax Coding Plan key。
+  # 跟上面的 llm.api_key 是两把独立的 key，aifd 不会互相兜底。
+  api_key:
 ```
 
-每个 session 是一颗星（半径 = `event_count`，冷蓝 = vibe-coding、暖红 = 深聊），每个项目是它环绕的 hub 节点。浏览器里能缩放、拖拽、hover 看 session 详情。
+**容错**：文件不存在 → 全部走默认值。YAML 解析失败 → 警告 + 走默认值，不 crash。某个段不是 mapping → 该段走默认值。
 
-- **隐私**：cwd 只显 basename，title 里的 home 路径脱敏成 `~`——分享截图 / HTML 不泄漏用户名和私有项目名
-- **自包含**：force-graph 内联进 HTML，离线可看，零运行时网络依赖
-- **link 模型**：项目 hub 节点（session 连 hub），大项目也不会边爆炸
-- `event_count` 跨工具不可比（各家 jsonl 事件粒度不同），仅本工具内部指标
-- 海报导出后续做（当前先交互星图）
+### 配置优先级
+
+| 配置项 | 优先级（左 > 右） |
+|---|---|
+| LLM key | `AIFD_LLM_API_KEY` → `DEEPSEEK_API_KEY`（v0.8 兼容） → `llm.api_key` |
+| LLM model | `AIFD_LLM_MODEL` → `llm.model` → `deepseek/deepseek-chat` |
+| LLM api_base | `AIFD_LLM_API_BASE` → `llm.api_base` → provider 默认 endpoint |
+| MiniMax key | `MINIMAX_API_KEY` → `minimax.api_key`（**绝不**回退到 `llm.api_key`） |
+| provider 原生 key | 当 `llm.api_key` 为空时由 LiteLLM 自行发现（`ZHIPUAI_API_KEY` 等） |
+
+命令行 flag（`--model` / `--api-base` / `--lang` / `--since`）压过以上所有来源，只对当次运行生效。
+
+aifd 刻意**不**覆盖 provider 原生的 env var —— LiteLLM 在 `api_key` 为 `None` 时会自己去找，如果 aifd 在这层抢先，用户就没法只靠切 env var 换 provider。
+
+### aifd 在磁盘上写了什么
+
+所有 aifd 自己的状态都在 `~/.aifd/` 下。**aifd 从不写你的 AI 工具数据目录**（`~/.claude/`、`~/.codex/` 等一律只读打开）。
+
+| 路径 | 写入者 | 内容 |
+|---|---|---|
+| `~/.aifd/config.yaml` | 你（首次由 aifd 生成模板） | LLM / reflect / habits / minimax 配置，`chmod 600` |
+| `~/.aifd/webhooks.yaml` | 你 | `vault watch webhooks` 的目标配置 |
+| `~/.aifd/watch-state.json` | daemon | 每个文件的扫描进度 + 每日捕获计数。**只存 category + 脱敏片段** |
+| `~/.aifd/findings.db` | daemon | SQLite 持久化 finding 事件流（v0.7） |
+| `~/.aifd/watch.pid` / `watch.port` | daemon | pid + HTTP 端口，`flock` 防双开 |
+| `~/.aifd/watch.log` | daemon | 后台运行时的 stdout / stderr |
+| `~/Library/LaunchAgents/*.plist` | `vault watch install` | macOS 开机自启（`uninstall` 会删掉） |
+| `aifd-cosmos.html` | `aifd cosmos` | 当前目录下的自包含星图（路径可改） |
+
+状态文件全部用 `tmp + rename` 原子写 —— 半途被 SIGKILL 也不会留下半截 JSON。
 
 ### 通用 flag
 
 ```bash
 aifd --version
+aifd --help                 # 任意层级都能 --help
+aifd vault watch events --help
+
 aifd ai session list -v     # INFO 日志
 aifd ai session list -vv    # DEBUG 日志
 aifd ai retro --json        # 几乎所有命令都支持 --json
 ```
 
+`--json` 是给管道用的：所有查询类命令的 JSON 输出都是稳定 schema，可以直接 `| jq`。
+
 ### 当前支持矩阵
 
-| 工具 | 状态 | 说明 |
-|---|---|---|
-| Claude Code | ✅ | 读 `~/.claude/projects/{encoded-cwd}/*.jsonl` |
-| Codex | ✅ | 读 `~/.codex/state_5.sqlite` + `~/.codex/sessions/` 兜底 |
-| OpenCode | ✅ v0.10 | 读 `~/.local/share/opencode/opencode.db`（SQLite）；session / token 已支持，skill 调用与 question 暂返回空 |
-| Cursor | ✅ v0.11 | 读 `globalStorage/state.vscdb` + `workspaceStorage/`（跨 store JOIN）；session 已支持（hash 映射 ~80%，空壳过滤），按目录列；skill 调用与 question 返回空 |
+**AI 工具 × 能力**
 
-| LLM provider（经 LiteLLM）| 命令支持 |
-|---|---|
-| DeepSeek（默认）、智谱 GLM、阿里通义、火山方舟、Moonshot Kimi | ✅ reflect / habits |
-| OpenAI、Anthropic、Gemini、Groq、Together、Fireworks | ✅ reflect / habits |
-| ollama / vLLM / Azure OpenAI / 公司 OpenAI-compat 代理 | ✅（用 `--api-base`）|
+| 工具 | session | token/cost | skill 调用 | question | 数据源 |
+|---|---|---|---|---|---|
+| **Claude Code** | ✅ | ✅ | ✅ | ✅ | `~/.claude/projects/{encoded-cwd}/*.jsonl` |
+| **Codex** | ✅ | ✅ | ✅ | ➖ | `~/.codex/state_5.sqlite` + `~/.codex/sessions/` 兜底 |
+| **OpenCode** (v0.10) | ✅ | ✅ | ➖ | ➖ | `~/.local/share/opencode/opencode.db` |
+| **Cursor** (v0.11) | ✅ | ✅ | ➖ | ➖ | `globalStorage/state.vscdb` + `workspaceStorage/` |
+
+➖ = 该工具没有对应的结构化数据，命令返回空而不是报错。Codex 的 `agent_message` 和 OpenCode 的消息都是自由文本，没有结构化的「问用户」事件；要覆盖这类纯文本提问需要启发式抽取，会引入 noise，所以路线上选了**精度优先**。理由详见 [`docs/question-extraction.md`](./docs/question-extraction.md)。
+
+**已装 skill 列举**（`aifd ai claude skill list` / `aifd ai codex skill list`）目前覆盖 Claude Code 和 Codex；OpenCode 的 skill 目录（`~/.config/opencode/skills`）已识别但尚未接进 CLI。
+
+**Cursor 的特殊之处**：其他三家都把 cwd 当一等公民存成字段，能直接 `WHERE directory = ?`；Cursor 把 session（globalStorage）和 cwd（workspaceStorage）拆进两个互不引用的 store，必须跨 store JOIN，SQL 层没法按 cwd 收窄。实测 hash 映射覆盖约 80% 的真实 session（时间戳形式的 id 在磁盘上没有对应 workspace），没映射上的会在 stderr 打一行计数。另外 Cursor 是活的 Electron 应用，边写 WAL 边被我们读，所以是 `mode=ro` 打开、锁冲突重试一次后静默跳过。Windows 路径支持还没做，见 [TODOS.md](./TODOS.md)。
+
+**LLM provider（经 LiteLLM）**
+
+| provider | `reflect` / `habits` | 备注 |
+|---|---|---|
+| DeepSeek（默认）、智谱 GLM、阿里通义 DashScope、火山方舟 Ark、Moonshot Kimi | ✅ | 国内 provider，`provider/model` 格式 |
+| OpenAI、Anthropic、Gemini、Groq、Together、Fireworks | ✅ | |
+| ollama / vLLM / Azure OpenAI / 公司 OpenAI-compat 代理 | ✅ | 需要 `--api-base` 或 `llm.api_base` |
+
+理论上 LiteLLM 支持的 100+ provider 都能用 —— aifd 不维护自己的 provider 列表，只是转发 `provider/model` 字符串。
+
+---
+
+## 🔒 数据来源与隐私
+
+### aifd 读哪些文件
+
+aifd 全部以**只读**方式打开这些路径。它不创建、不修改、不删除你的 AI 工具数据。
+
+| 工具 | 会话数据 | 已装 skill |
+|---|---|---|
+| Claude Code | `~/.claude/projects/{encoded-cwd}/*.jsonl` | `~/.claude/skills/`、`~/.claude/plugins/cache/` |
+| Codex | `~/.codex/state_5.sqlite`（主）+ `~/.codex/sessions/`（兜底） | `~/.codex/skills/` |
+| OpenCode | `~/.local/share/opencode/opencode.db` | `~/.config/opencode/skills/` |
+| Cursor (macOS) | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` + `workspaceStorage/` | — |
+| Cursor (Linux) | `$XDG_CONFIG_HOME/Cursor/User/`（或 `~/.config/Cursor/User/`） | — |
+| Cursor (Windows) | `%APPDATA%/Cursor/User/` —— **尚未支持**，见 TODOS.md | — |
+
+**单个文件解析失败必须静默跳过**（日志降到 `warning` / `debug`），永远不 raise —— 一个坏文件不能让整张表挂掉。这是 provider 层的硬约束，也是新 provider PR 的验收项。
+
+### 隐私 invariant
+
+这几条是硬保证，有测试守着：
+
+1. **完整 secret 值永不离开检测器**。`SensitiveMatch` 数据类只存脱敏片段（首 4 + 尾 4 字符）。终端输出、`--json`、`watch.log`、`watch-state.json`、`findings.db`、webhook payload —— 一律只有脱敏片段。`aifd vault scan --json` 的结果可以直接贴给同事 debug。
+2. **发给 LLM 的 prompt 里没有你的内容**。`reflect` / `habits` 只发聚合后的统计维度：
+   - 不发 session message 内容
+   - 不发 AskUserQuestion 的原文和你的答案原文
+   - 不发完整 cwd 路径（**只发 basename**）
+   - `--include-questions` 是 opt-in，而且也只发 summary，**不**发原文
+   - `render_prompt` 出口跑一遍 `_scan_line` 兜底校验：prompt 里出现任何 v0.4 detector 能命中的 secret pattern，测试即失败
+3. **HTTP server 只绑 `127.0.0.1`**，不是 `0.0.0.0` —— LAN 上其它机器碰不到 finding 页面。通知 URL 里的 token 是 `secrets.token_urlsafe(32)`（约 256 bit，不可猜）。
+4. **分享出去的产物已脱敏**。`aifd cosmos` 的 HTML 和 `aifd ai question list --output` 的 HTML 里，cwd 只有 basename，home 路径脱敏成 `~`；所有用户文本过 `html.escape()`，历史里有 `<script>` 字符串也不会 XSS。
+5. **webhook 只发 fingerprint + 脱敏片段**，且默认 disabled，必须 `test` 通过才能 enable —— 避免配错地址就把告警推到错误的地方。
+
+### 什么时候会联网
+
+aifd 默认完全离线。只有这三种情况会发出网络请求，都是你显式触发的：
+
+| 命令 | 目标 | 发出去的内容 |
+|---|---|---|
+| `aifd ai reflect` / `aifd ai habits` | 你配置的 LLM provider | 聚合统计维度（见上面第 2 条），约 $0.001/次 |
+| `aifd quota` | MiniMax usage 端点 | 一个 Bearer header，无 body |
+| `aifd vault watch webhooks` | 你配置的 webhook URL | fingerprint + category + 脱敏片段 |
+
+其余所有命令 —— `session list` / `skill list` / `question list` / `today` / `weekly` / `monthly` / `retro` / `vault scan` / `vault cost` / `cosmos` —— **零网络请求**。`cosmos` 生成的 HTML 也把 JS 全部内联，打开时不发任何请求。
+
+---
+
+## ❓ 常见问题排查
+
+**`aifd ai session list` 什么都不显示**
+
+默认是**精确匹配**当前目录，不递归子目录。确认你在跑过 AI session 的那个目录里。用 `aifd ai session list -vv` 看 DEBUG 日志，能看到它扫了哪些路径、跳过了什么。跨目录看用 `aifd ai skill list`（默认全局）或 `aifd ai weekly`。
+
+**`aifd ai question list` 对 Codex / OpenCode / Cursor 返回空**
+
+预期行为，不是 bug。只有 Claude Code 有结构化的 `AskUserQuestion` 工具调用事件。见[当前支持矩阵](#当前支持矩阵)。
+
+**`aifd vault cost` 里某些行 cost 是 $0，但 token 数不为 0**
+
+那个 model 不在价格表里。跑 `aifd vault cost --list-models` 看表里有什么，然后提个 issue（或 PR）补上 `aifd/vault/prices.py`。aifd 刻意显示 token 但不瞎猜价格。
+
+**`vault watch` 装了但收不到通知**
+
+按顺序排查：
+
+1. `aifd vault watch status` —— daemon 在跑吗？用的是哪个 notify backend？
+2. 没装 `terminal-notifier` 的话 `brew install terminal-notifier`。fallback 的 `osascript` 会让**点击通知打开「脚本编辑器」**而不是浏览器，这是 AppleScript `display notification` 的已知限制（不支持自定义点击回调）。
+3. 系统设置 → 通知 → 允许 Terminal / terminal-notifier，然后 `aifd vault watch stop && aifd vault watch start`。
+4. 还不行就前台跑看日志：`aifd vault watch start --foreground -vv`。
+
+daemon 首次启动会发一条「Watch daemon started — notifications working.」测试通知。看不到这条就是通知权限问题，跟检测逻辑无关。
+
+**Linux 上 `aifd vault watch install` 报错**
+
+`install` / `uninstall` 是 macOS-only（走 launchd）。Linux 用 `systemctl --user` 跑 `aifd vault watch daemon`，`.service` 模板在 [`docs/vault-watch.md`](./docs/vault-watch.md)。检测逻辑本身跨平台（watchdog 封装了 inotify）。
+
+**`ModuleNotFoundError: No module named 'litellm'`（但 `uv run aifd` 能跑）**
+
+editable 安装的 dep trap。见 [Editable 安装的 dep trap](#editable-安装的-dep-trap)。
+
+**`aifd ai reflect` 报没有 API key**
+
+设一个 env var（`export DEEPSEEK_API_KEY=sk-...`）或编辑 `~/.aifd/config.yaml` 的 `llm.api_key`。首次跑 `aifd ai reflect` 会自动生成模板文件。优先级见[配置优先级](#配置优先级)。
+
+没有 key 也不会崩 —— 会降级成 structured local report 加一句清楚的错误信息。401 / 5xx / 超时同理。
+
+**`aifd quota` 说 "No active MiniMax Coding Plan"**
+
+key 有效但这把 key 名下没有在跑的 coding plan 订阅。确认 `MINIMAX_API_KEY` 是 coding-plan 的 key，而不是普通 API key（也不是你 `llm.api_key` 那把）。
+
+**`aifd cosmos` 报 "No sessions found"**
+
+窗口内没有 session。放宽窗口：`aifd cosmos --since 365`。
+
+**Cursor 的 session 少了一些**
+
+已知限制：cwd 靠 workspace hash 映射，实测覆盖约 80%；时间戳形式的 composer id 在磁盘上没有对应的 workspace 目录，映射不出 cwd。没映射上的数量会在 stderr 打一行。另外只有出现在 `bubbleId:*` 里（有真实对话内容）的 composer 才算 session —— 其余约 80% 的 `composerData` 行是草稿和迁移残留，Cursor 自己的 UI 也不显示。
 
 ---
 
@@ -901,48 +1279,75 @@ aifd ai retro --json        # 几乎所有命令都支持 --json
 
 ### 架构
 
-每个 AI 工具一个 adapter 放在 `aifd/providers/` 下。新增 provider = 一个文件 + 一行注册。CLI 分三层（`aifd ai session list`）给未来 `session show` / `session resume` / `ai prompt` 等命令留空间。
+三条分层原则：
+
+1. **每个 AI 工具一个 adapter**，放在 `aifd/providers/` 下，都实现同一个 `Provider` Protocol。上层命令不知道 Claude 和 Cursor 的存储差异有多大。
+2. **业务逻辑跟渲染分离**。`vault/` 和 `insights/` 只算数据，`render*.py` 只管 rich Table / JSON / HTML 三种出口。所以「加一个 `--json`」永远是几行。
+3. **CLI 分三层**（`aifd ai session list`），给未来的 `session show` / `session resume` / `ai prompt` 留了名字空间。
 
 ```text
 aifd/
-├── cli/
-│   ├── _logging.py          # 所有 CLI 命令共享的日志配置
-│   ├── _runner.py           # 共享的 provider-query 框架（v0.3）
+├── cli/                         # CLI 层：只解析参数 + 调业务层 + 选渲染器
+│   ├── __init__.py              # 顶层 `aifd` group（ai / cosmos / quota / vault）
+│   ├── _logging.py              # 所有命令共享的 -v / -vv 日志配置
+│   ├── _runner.py               # 共享的 provider-query 框架（v0.3）
+│   ├── cosmos.py                # aifd cosmos                                v0.13-0.14
+│   ├── quota.py                 # aifd quota / quota minimax                 v0.12
 │   ├── ai/
-│   │   ├── session.py       # aifd ai session list（v0.1）
-│   │   ├── skill.py         # aifd ai skill list（v0.2）
-│   │   ├── question.py      # aifd ai question list（v0.3 + HTML v0.3.1）
-│   │   ├── retro.py         # aifd ai today / weekly / monthly / retro（v0.5）
-│   │   ├── reflect.py       # aifd ai reflect（v0.8）
-│   │   ├── habits.py        # aifd ai habits（v0.9）
-│   │   ├── claude/skill.py  # aifd ai claude skill list（v0.2.1）
-│   │   └── codex/skill.py   # aifd ai codex skill list（v0.2.1）
+│   │   ├── session.py           # aifd ai session list                       v0.1
+│   │   ├── skill.py             # aifd ai skill list                         v0.2
+│   │   ├── question.py          # aifd ai question list（+ HTML v0.3.1）      v0.3
+│   │   ├── retro.py             # aifd ai today / weekly / monthly / retro    v0.5
+│   │   ├── reflect.py           # aifd ai reflect                            v0.8
+│   │   ├── habits.py            # aifd ai habits                             v0.9
+│   │   ├── claude/skill.py      # aifd ai claude skill list                  v0.2.1
+│   │   └── codex/skill.py       # aifd ai codex skill list                   v0.2.1
 │   └── vault/
-│       ├── scan.py          # aifd vault scan（PII/secret 扫描，v0.4）
-│       ├── cost.py          # aifd vault cost（token + $，v0.4）
-│       └── watch.py         # aifd vault watch（daemon + events + webhooks，v0.6-0.7）
-├── providers/
-│   ├── base.py              # Provider Protocol，新 provider 必须实现
-│   ├── _utils.py            # 共享正则 / 命名归一 / frontmatter 解析
-│   ├── claude.py            # Claude Code adapter
-│   ├── codex.py             # Codex adapter
-│   ├── opencode.py          # OpenCode adapter（v0.10）
-│   └── registry.py          # 注册新 provider 的地方
-├── insights/                # v0.8-0.9 AI Coach 业务逻辑
-│   ├── activity.py          # session 聚合（reflect / habits 共享）
-│   ├── reflection.py        # reflect 维度计算
-│   ├── habits.py            # habits 维度计算
-│   └── llm_client.py        # LiteLLM wrapper（100+ provider 路由）
-├── vault/                   # v0.4-0.7 业务逻辑
-│   ├── prices.py            # model → USD 价格表
-│   ├── cost.py              # 聚合 token → $
-│   ├── scan.py              # PII/secret detector
-│   ├── watch.py / watch_server.py / events_db.py / webhooks.py  # 实时 daemon + 事件流 + 推送
-│   └── playbooks.py         # secret rotation 步骤库
-├── aggregation.py           # skill 统计聚合（v0.2）
-├── models.py                # Session / SkillInvocation / SkillStats / InstalledSkill / QuestionAnswer / TokenUsage / CostRow / SensitiveMatch
-├── paths.py                 # cwd 归一化
-└── render.py                # rich Table / JSON / HTML 渲染
+│       ├── scan.py              # aifd vault scan                            v0.4
+│       ├── cost.py              # aifd vault cost                            v0.4
+│       └── watch.py             # aifd vault watch + events + webhooks       v0.6-0.7
+│
+├── providers/                   # 每个 AI 工具一个 adapter
+│   ├── base.py                  # Provider Protocol —— 新 provider 的契约
+│   ├── registry.py              # PROVIDERS 列表；注册新 provider 的唯一入口
+│   ├── _utils.py                # 共享正则 / skill 命名归一 / frontmatter 解析
+│   ├── claude.py                # Claude Code（session / skill / question / token）
+│   ├── codex.py                 # Codex（sqlite 主 + jsonl 兜底）
+│   ├── opencode.py              # OpenCode                                   v0.10
+│   └── cursor.py                # Cursor（跨 store JOIN + WAL 只读）           v0.11
+│
+├── insights/                    # AI Coach 业务逻辑                          v0.8-0.9
+│   ├── activity.py              # session 聚合 + 公共 iter_sessions_in()
+│   │                            #   （reflect / habits / cosmos 三处共用）
+│   ├── reflection.py            # reflect 的 9 个维度计算
+│   ├── reflection_prompt.py     # reflect prompt 组装 + secret 出口校验
+│   ├── reflection_source.py     # reflect 的数据源适配
+│   ├── habits.py                # habits 的 8 个维度计算
+│   ├── habits_prompt.py         # habits prompt 组装
+│   └── llm_client.py            # LiteLLM wrapper（100+ provider 路由 + 降级）
+│
+├── vault/                       # 数据主权业务逻辑                           v0.4-0.7
+│   ├── scan.py                  # 10 个 regex detector + 熵检测 + 误报抑制
+│   ├── prices.py                # model → USD 价格表
+│   ├── cost.py                  # 聚合 token → $
+│   ├── playbooks.py             # 11 类 secret 的 rotation 步骤库（中英双语）
+│   ├── watch.py                 # daemon 主循环（watchdog 文件事件）
+│   ├── watch_server.py          # 只绑 127.0.0.1 的 finding 详情 HTTP server
+│   ├── watch_state.py           # ~/.aifd/ 下的原子状态文件读写
+│   ├── events_db.py             # SQLite 事件流 + 状态机                     v0.7
+│   ├── webhooks.py              # 出站推送 + retry + dead letter             v0.7
+│   └── static/                  # watch web UI 单页 SPA
+│
+├── assets/                      # vendored force-graph 1.51.4（MIT），打进 wheel
+├── config.py                    # ~/.aifd/config.yaml 读写 + env 优先级 + 0600
+├── models.py                    # Session / SkillInvocation / SkillStats /
+│                                # InstalledSkill / QuestionAnswer / TokenUsage /
+│                                # CostRow / SensitiveMatch
+├── paths.py                     # cwd 归一化（跨 provider 的目录比较）
+├── aggregation.py               # skill 统计聚合                             v0.2
+├── render.py                    # rich Table / JSON / HTML 渲染
+├── render_cosmos.py             # cosmos 数据层 build_graph + 2D force-graph  v0.13
+└── render_cosmos_25d.py         # cosmos 2.5D canvas 渲染（v0.14 默认）       v0.14
 ```
 
 ### 贡献一个新 provider
@@ -952,9 +1357,14 @@ aifd/
 3. 在 `tests/conftest.py` 加一个 fixture factory（参考 `opencode_db` / `codex_db`），写 `tests/test_yourtool_provider.py`。
 4. 确认 `uv run pytest`、`uv run ruff check aifd/ tests/`、`uv run mypy aifd/` 全过。
 
-最近的 `aifd/providers/opencode.py`（v0.10）就是「一个文件 + 一行注册」的完整范例。
+`aifd/providers/opencode.py`（v0.10）是「一个文件 + 一行注册」最干净的范例。
+如果你的工具存储结构更别扭（session 和 cwd 分在两个 store、边写边读），参考 `cursor.py`（v0.11）—— 它把这类问题的处理方式都写在文件头的 docstring 里了。
 
-**单文件解析错误必须 silent skip**（log 在 `warning` 或 `debug` 级别），永远不能 raise——一个坏文件不能让整个列表挂掉。
+**硬约束**：
+
+- **单文件解析错误必须 silent skip**（log 在 `warning` 或 `debug` 级别），永远不能 raise —— 一个坏文件不能让整个列表挂掉。
+- **只读**打开一切外部数据。活的应用（Cursor / OpenCode）在写 SQLite WAL，用 `mode=ro`，锁冲突重试一次后跳过。
+- **不支持的能力返回空列表**，不要抛 `NotImplementedError` —— 上层是跨 provider 聚合的，一家不支持不该影响其他家。
 
 ### 开发
 
@@ -962,10 +1372,33 @@ aifd/
 git clone https://github.com/xunull/aifd
 cd aifd
 uv sync
-uv run pytest
-uv run ruff check aifd/ tests/
-uv run mypy aifd/
+
+uv run pytest                       # 744 个测试
+uv run pytest --cov=aifd            # 带覆盖率
+uv run pytest -m live_api           # 真打 LLM API 的测试（需 provider key，默认跳过）
+uv run ruff check aifd/ tests/      # lint
+uv run mypy aifd/                   # 类型检查（strict）
+
+uv run aifd ai session list         # 不装到 PATH 直接跑
 ```
+
+仓库带 `.pre-commit-config.yaml`，挂的是 [gitleaks](https://github.com/gitleaks/gitleaks) —— 每次 commit 前扫暂存区，挡住误提交的 API key。一个扫 secret 的工具自己也该被 secret 扫描守着：
+
+```bash
+pre-commit install
+```
+
+### 测试与 CI
+
+| 项 | 现状 |
+|---|---|
+| 测试数 | **744**（`uv run pytest`） |
+| CI 矩阵 | ubuntu / macOS / Windows × Python 3.12 / 3.13 = **6 个组合**，`fail-fast: false` |
+| 门禁 | `ruff check` → `mypy aifd/`（strict）→ `pytest --cov` 全绿才算过 |
+| live API 测试 | 打 `live_api` 标记，默认跳过；需要 provider key + 显式 `pytest -m live_api` |
+| 发布 | 打 `v*` tag 触发 `release.yml`，构建前先校验 tag 与 `pyproject.toml` 版本一致，不一致直接 fail |
+
+mypy 是 **strict** 模式（`warn_unused_ignores` + `warn_return_any` 都开着），ruff 选了 `E, F, W, I, B, UP, RUF` 规则集，行宽 100。中文 prose（rotation playbook、LLM prompt）里的全角标点是刻意的，在 `pyproject.toml` 里按文件豁免了 `RUF001-003`。
 
 #### Editable 安装的 dep trap
 
@@ -988,24 +1421,71 @@ pipx reinstall aifd                          # pipx
 
 ---
 
+## 🧭 版本历程
+
+一条主线：先能**查**，再能**算**，再能**防**，最后能**反思**和**看见**。
+
+| 版本 | 带来了什么 | 一句话 |
+|---|---|---|
+| v0.1 | `aifd ai session list` | 按目录列 session —— 全部功能的地基 |
+| v0.2 | `aifd ai skill list` | 跨工具 skill 统计；跨 provider 命名归一 |
+| v0.2.1 | `ai claude/codex skill list` | 列出已装的 skill（user / plugin / system） |
+| v0.3 | `aifd ai question list` | 复盘 AskUserQuestion 历史 + recommended hit rate |
+| v0.3.1 | `--open` / `--html` / `--output` | 长 question 在终端看不全，弹浏览器看 |
+| v0.4 | `aifd vault scan` / `cost` | secret / PII 扫描 + token → USD 估算 |
+| v0.5 | `today` / `weekly` / `monthly` / `retro` | 活动 retrospective + 环比 + 月度投影 |
+| v0.6 | `aifd vault watch` | 从事后查升级为事前防：常驻 daemon + macOS 通知 |
+| v0.7 | `watch events` / `watch webhooks` | 持久化事件流（SQLite）+ 状态机 + 外部报警接入 |
+| v0.8 | `aifd ai reflect` | AI Coach：每周 meta-cognitive 反思，经 LiteLLM 路由 |
+| v0.9 | `aifd ai habits` | 60-90 天行为人格画像：你是什么类型的 AI 用户 |
+| v0.10 | OpenCode provider | 第三个工具接入 |
+| v0.11 | Cursor provider | 第四个工具接入（跨 store JOIN 的硬骨头） |
+| v0.12 | `aifd quota` | MiniMax Coding Plan 5h 窗口剩余额度 |
+| v0.13 | `aifd cosmos` | AI 史 → 力导向星系图，自包含 HTML |
+| v0.13.1-0.13.2 | 视觉打磨 + 性能修复 | 辉光星点；去掉 `shadowBlur` 修卡死（单帧 5s → 1.6ms） |
+| **v0.14** | **cosmos 2.5D 默认** | 鼠标拖拽旋转的立体星图；`--flat` 保留 2D |
+
+完整变更记录见 [CHANGELOG.md](./CHANGELOG.md)，下一步计划见 [TODOS.md](./TODOS.md)。
+
+---
+
 ## License
 
 Apache-2.0 — 见 [LICENSE](./LICENSE)。
 
+vendored 的 force-graph 1.51.4 是 MIT，license 原文在 [`aifd/assets/force-graph.LICENSE`](./aifd/assets/force-graph.LICENSE)。
+
 ## 相关文档
 
-- [`docs/ai-reflect.md`](./docs/ai-reflect.md) — `aifd ai reflect` 完整规格
-- [`docs/ai-habits.md`](./docs/ai-habits.md) — `aifd ai habits` 完整规格
+**命令规格**
+
+- [`docs/ai-reflect.md`](./docs/ai-reflect.md) — `aifd ai reflect` 完整规格（9 个维度 + privacy invariant）
+- [`docs/ai-habits.md`](./docs/ai-habits.md) — `aifd ai habits` 完整规格（8 个维度）
 - [`docs/ai-retro.md`](./docs/ai-retro.md) — `aifd ai today / weekly / monthly / retro` 完整规格
-- [`docs/vault-watch.md`](./docs/vault-watch.md) — `aifd vault watch` 完整规格
+- [`docs/vault.md`](./docs/vault.md) — `aifd vault` 整体设计
+- [`docs/vault-watch.md`](./docs/vault-watch.md) — `aifd vault watch` 完整规格（含 Linux systemd 模板）
 - [`docs/vault-events.md`](./docs/vault-events.md) — `aifd vault watch events / webhooks` 完整规格
-- [`docs/question-extraction.md`](./docs/question-extraction.md) — `aifd ai question list` 抽取算法
-- [`docs/secret-scan.md`](./docs/secret-scan.md) — secret scan 安全 invariant
+
+**算法与实现**
+
+- [`docs/question-extraction.md`](./docs/question-extraction.md) — `aifd ai question list` 的抽取算法与精度取舍
+- [`docs/secret-scan.md`](./docs/secret-scan.md) — secret 检测器、误报抑制与安全 invariant
+- [`docs/cost-calculation.md`](./docs/cost-calculation.md) — token 计价模型与各家 cache 语义差异
+- [`docs/skill-detection.md`](./docs/skill-detection.md) — 跨工具 skill 调用识别与命名归一
+- [`docs/vault-watch-lifecycle.md`](./docs/vault-watch-lifecycle.md) — daemon 生命周期、launchd 交互、崩溃恢复
+- [`docs/vault-events-integrations.md`](./docs/vault-events-integrations.md) — webhook payload 格式与 Slack / PagerDuty / Datadog 接法
+
+**项目维护**
+
+- [`docs/release.md`](./docs/release.md) — 发版流程
+- [`docs/claude-code-plugin-update.md`](./docs/claude-code-plugin-update.md) — Claude Code plugin 结构变更的适配记录
 - [`CHANGELOG.md`](./CHANGELOG.md) — 版本变更
 - [`TODOS.md`](./TODOS.md) — 路线图 + 已知 follow-up
 
 ## 反馈
 
 Issues / discussions / PR 都欢迎：<https://github.com/xunull/aifd>
+
+想加一个新 AI 工具的支持？从[贡献一个新 provider](#贡献一个新-provider) 开始，通常一个文件就够了。
 
 [⬆ 回到顶部](#aifd)
